@@ -163,627 +163,592 @@ const HTML_PAGE = `<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Pi-Browser Control</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
   <style>
-    @keyframes glow { 0%,100%{text-shadow:0 0 10px #00d9ff,0 0 20px #00d9ff;} 50%{text-shadow:0 0 20px #00d9ff,0 0 40px #00d9ff,0 0 60px #0077ff;} }
-    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.7;} }
-    @keyframes scanline { 0%{transform:translateY(-100%);} 100%{transform:translateY(100%);} }
-    @keyframes borderGlow { 0%,100%{border-color:#00d9ff;box-shadow:0 0 5px #00d9ff;} 50%{border-color:#ff00ff;box-shadow:0 0 15px #ff00ff;} }
+    /* === Pi-Browser Custom Design System === */
+    /* Inspired by Vercel, Linear, Cursor — AI/Agentic aesthetic */
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      /* Background layers */
+      --bg-base: #09090b;
+      --bg-surface: #111113;
+      --bg-elevated: #18181b;
+      --bg-overlay: rgba(0, 0, 0, 0.6);
+
+      /* Glass effect */
+      --glass-bg: rgba(255, 255, 255, 0.03);
+      --glass-border: rgba(255, 255, 255, 0.06);
+      --glass-hover: rgba(255, 255, 255, 0.08);
+
+      /* Text hierarchy */
+      --text-primary: #fafafa;
+      --text-secondary: #a1a1aa;
+      --text-muted: #8b8b95;
+      --text-disabled: #6b6b76;
+
+      /* Accent */
+      --accent: #8b5cf6;
+      --accent-hover: #7c3aed;
+      --accent-subtle: rgba(139, 92, 246, 0.1);
+      --accent-border: rgba(139, 92, 246, 0.3);
+      --accent-gradient: linear-gradient(135deg, #8b5cf6, #6366f1, #3b82f6);
+
+      /* Semantic */
+      --success: #22c55e;
+      --success-subtle: rgba(34, 197, 94, 0.1);
+      --success-border: rgba(34, 197, 94, 0.3);
+      --warning: #f59e0b;
+      --warning-subtle: rgba(245, 158, 11, 0.1);
+      --error: #ef4444;
+      --error-subtle: rgba(239, 68, 68, 0.1);
+      --error-border: rgba(239, 68, 68, 0.3);
+
+      /* Borders & Radius */
+      --border: rgba(255, 255, 255, 0.06);
+      --border-hover: rgba(255, 255, 255, 0.12);
+      --radius-sm: 6px;
+      --radius: 8px;
+      --radius-lg: 12px;
+      --radius-xl: 16px;
+      --radius-full: 9999px;
+
+      /* Shadows */
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+      --shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+      --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+
+      /* Fonts */
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+    }
+
+    /* Animations */
+    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.6;} }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(6px);} to{opacity:1;transform:translateY(0);} }
+    @keyframes slideUp { from{transform:translateY(16px);opacity:0;} to{transform:translateY(0);opacity:1;} }
+
+    /* === Reset & Base === */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
-      font-family: 'Courier New', monospace;
-      background: linear-gradient(135deg, #0a0a1a 0%, #1a1a3e 50%, #0a0a2a 100%);
-      color: #eee;
+      font-family: var(--font-sans);
+      background: var(--bg-base);
+      color: var(--text-primary);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
       min-height: 100vh;
-      padding: 20px;
-      position: relative;
-      overflow-x: hidden;
     }
-    body::before {
-      content: '';
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,217,255,0.03) 2px, rgba(0,217,255,0.03) 4px);
-      pointer-events: none;
-      z-index: 1000;
+
+    /* === Container === */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
     }
-    .container { max-width: 1400px; margin: 0 auto; position: relative; z-index: 1; }
+
+    /* === Typography === */
     h1 {
       text-align: center;
-      margin-bottom: 30px;
-      color: #00d9ff;
-      font-size: 32px;
-      font-weight: bold;
-      letter-spacing: 4px;
-      text-transform: uppercase;
-      animation: glow 3s ease-in-out infinite;
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 2rem;
+      background: var(--accent-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: -0.02em;
     }
-    h1::before { content: '[ '; color: #ff00ff; }
-    h1::after { content: ' ]'; color: #ff00ff; }
+    h2 { font-size: 1.25rem; font-weight: 600; color: var(--text-primary); margin-bottom: 1rem; letter-spacing: -0.01em; }
+    h3 { font-size: 1rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem; }
+    h4 { font-size: 0.875rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem; }
+    p { color: var(--text-secondary); margin-bottom: 0.75rem; }
+    small { font-size: 0.75rem; color: var(--text-muted); }
+    label { display: block; font-size: 0.8rem; font-weight: 500; color: var(--text-secondary); margin-bottom: 0.375rem; }
+    hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 
-    /* 탭 네비게이션 */
-    .tabs {
+    /* === Tabs === */
+    .tabs { margin-bottom: 1.75rem; }
+    .tabs [role="group"] {
       display: flex;
-      gap: 8px;
-      margin-bottom: 30px;
-      border-bottom: 1px solid rgba(0,217,255,0.3);
-      padding-bottom: 0;
+      gap: 4px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 4px;
     }
-    .tab {
-      padding: 14px 28px;
+    .tabs [role="group"] > button {
+      flex: 1;
+      padding: 0.5rem 1rem;
+      font-size: 0.8rem;
+      font-weight: 500;
+      font-family: var(--font-sans);
+      color: var(--text-secondary);
       background: transparent;
-      border: 1px solid transparent;
-      border-bottom: none;
-      color: #666;
+      border: none;
+      border-radius: var(--radius);
       cursor: pointer;
-      font-size: 13px;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      transition: all 0.3s;
-      position: relative;
-      clip-path: polygon(10px 0, 100% 0, 100% 100%, 0 100%, 0 10px);
+      transition: all 0.2s ease;
+      white-space: nowrap;
     }
-    .tab:hover { color: #00d9ff; background: rgba(0,217,255,0.1); }
-    .tab.active {
-      color: #00d9ff;
-      background: rgba(0,217,255,0.15);
-      border-color: rgba(0,217,255,0.5);
-      box-shadow: 0 0 20px rgba(0,217,255,0.2);
+    .tabs [role="group"] > button:hover {
+      color: var(--text-secondary);
+      background: var(--glass-hover);
+    }
+    .tabs [role="group"] > button.active {
+      color: var(--text-primary);
+      background: var(--accent-gradient);
+      font-weight: 600;
     }
     .tab-content { display: none; }
     .tab-content.active { display: block; animation: fadeIn 0.3s ease; }
-    @keyframes fadeIn { from{opacity:0;transform:translateY(10px);} to{opacity:1;transform:translateY(0);} }
 
-    /* 입력 영역 */
+    /* === Form Elements === */
+    input[type="text"], input[type="number"], input[type="password"], input[type="url"],
+    input[type="email"], input[type="tel"], input[type="date"], input[type="time"],
+    select, textarea {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.85rem;
+      font-family: var(--font-sans);
+      color: var(--text-primary);
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      -webkit-appearance: none;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--accent-border);
+      box-shadow: 0 0 0 3px var(--accent-subtle);
+    }
+    input::placeholder, textarea::placeholder { color: var(--text-muted); }
+    textarea { min-height: 80px; resize: vertical; line-height: 1.5; }
+    select { cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23a1a1aa' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 0.75rem center; padding-right: 2rem; }
+    select option { background: var(--bg-elevated); color: var(--text-primary); }
+
+    /* === Buttons === */
+    button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.375rem;
+      padding: 0.5rem 1rem;
+      font-size: 0.8rem;
+      font-weight: 500;
+      font-family: var(--font-sans);
+      color: var(--text-primary);
+      background: var(--glass-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+      line-height: 1.4;
+    }
+    button:hover { background: var(--glass-hover); border-color: var(--border-hover); }
+    button:active { transform: scale(0.98); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+    /* Primary button (gradient) */
+    button.primary, button[type="submit"] {
+      background: var(--accent-gradient);
+      border: none;
+      color: #fff;
+      font-weight: 600;
+    }
+    button.primary:hover, button[type="submit"]:hover {
+      opacity: 0.9;
+      box-shadow: 0 4px 16px rgba(139, 92, 246, 0.3);
+    }
+
+    /* Secondary (glass) */
+    button.secondary {
+      background: var(--glass-bg);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+    }
+    button.secondary:hover { background: var(--glass-hover); color: var(--text-primary); }
+
+    /* Danger */
+    button.danger {
+      background: var(--error-subtle);
+      border: 1px solid var(--error-border);
+      color: var(--error);
+    }
+    button.danger:hover { background: rgba(239, 68, 68, 0.2); }
+
+    /* Success */
+    button.success {
+      background: var(--success-subtle);
+      border: 1px solid var(--success-border);
+      color: var(--success);
+    }
+    button.success:hover { background: rgba(34, 197, 94, 0.2); }
+
+    /* Small button */
+    .btn-sm { padding: 0.25rem 0.625rem; font-size: 0.7rem; margin-left: 0.5rem; }
+
+    /* === Stats Bar === */
+    .stats {
+      display: flex;
+      gap: 0;
+      margin-bottom: 1.75rem;
+      padding: 0.875rem 1.25rem;
+      background: var(--glass-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-lg);
+      flex-wrap: wrap;
+    }
+    .stat {
+      text-align: center;
+      padding: 0 1rem;
+      border-right: 1px solid var(--border);
+      flex: 1;
+      min-width: 80px;
+    }
+    .stat:last-child { border-right: none; }
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--accent);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+    }
+    .stat-label {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-top: 2px;
+    }
+    .connected { color: var(--success); font-size: 0.8rem; }
+    .disconnected { color: var(--error); animation: pulse 1.5s infinite; font-size: 0.8rem; }
+
+    /* === Input Area === */
     .input-area {
       display: flex;
-      gap: 12px;
-      margin-bottom: 25px;
+      gap: 0.5rem;
+      margin-bottom: 1.75rem;
+      align-items: stretch;
     }
-    input[type="text"], input[type="password"], .cyber-select {
-      padding: 14px 18px;
-      font-size: 14px;
-      font-family: 'Courier New', monospace;
-      border: 1px solid rgba(0,217,255,0.3);
-      border-radius: 0;
-      background: rgba(10,10,30,0.8);
-      color: #00d9ff;
-      outline: none;
-      transition: all 0.3s;
-      clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
-    }
-    input:focus, .cyber-select:focus {
-      border-color: #00d9ff;
-      box-shadow: 0 0 15px rgba(0,217,255,0.3), inset 0 0 15px rgba(0,217,255,0.1);
-    }
-    #taskInput { flex: 1; font-size: 16px; }
-    ::placeholder { color: #446; }
+    .input-area select { width: 200px; margin-bottom: 0; flex-shrink: 0; }
+    .input-area input { flex: 1; margin-bottom: 0; }
+    .input-area button { margin-bottom: 0; }
 
-    button {
-      padding: 14px 28px;
-      font-size: 13px;
-      font-family: 'Courier New', monospace;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      border: 1px solid;
-      clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .btn-primary {
-      background: linear-gradient(135deg, rgba(0,217,255,0.8), rgba(0,119,255,0.8));
-      border-color: #00d9ff;
-      color: white;
-    }
-    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 0 25px rgba(0,217,255,0.5), 0 4px 15px rgba(0,217,255,0.3); }
-    .btn-secondary { background: rgba(68,68,68,0.8); border-color: #666; color: white; }
-    .btn-secondary:hover { background: rgba(85,85,85,0.8); box-shadow: 0 0 15px rgba(255,255,255,0.1); }
-    .btn-sm { padding: 6px 12px; font-size: 10px; margin-left: 10px; vertical-align: middle; }
-    .btn-danger { background: rgba(231,76,60,0.8); border-color: #e74c3c; color: white; }
-    .btn-danger:hover { background: rgba(192,57,43,0.9); box-shadow: 0 0 20px rgba(231,76,60,0.4); }
-    .btn-success { background: rgba(39,174,96,0.8); border-color: #27ae60; color: white; }
-    .btn-success:hover { background: rgba(34,153,84,0.9); box-shadow: 0 0 20px rgba(39,174,96,0.4); }
-
-    /* 작업 그리드 */
+    /* === Task Grid === */
     .tasks-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
-      gap: 20px;
+      gap: 0.75rem;
     }
-    .task-card {
-      background: rgba(10,10,30,0.9);
-      padding: 20px;
-      border: 1px solid rgba(0,217,255,0.2);
-      position: relative;
-      clip-path: polygon(15px 0, 100% 0, 100% calc(100% - 15px), calc(100% - 15px) 100%, 0 100%, 0 15px);
-      transition: all 0.3s;
+
+    /* === Task Card (Glass) === */
+    .task-card, article {
+      background: var(--glass-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem;
+      margin-bottom: 0;
+      transition: border-color 0.2s;
     }
-    .task-card::before {
-      content: '';
-      position: absolute;
-      top: 0; left: 0;
-      width: 100%; height: 2px;
-      background: linear-gradient(90deg, transparent, #00d9ff, transparent);
-      animation: scanline 2s linear infinite;
-    }
-    .task-card:hover {
-      border-color: rgba(0,217,255,0.5);
-      box-shadow: 0 0 30px rgba(0,217,255,0.15);
-    }
+    .task-card:hover, article:hover { border-color: var(--border-hover); }
+
     .task-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 15px;
-      padding-bottom: 10px;
-      border-bottom: 1px solid rgba(0,217,255,0.1);
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.625rem;
+      border-bottom: 1px solid var(--border);
     }
     .task-id {
-      font-size: 11px;
-      color: #00d9ff;
-      font-family: 'Courier New', monospace;
-      letter-spacing: 1px;
+      font-size: 0.7rem;
+      color: var(--accent);
+      font-family: var(--font-mono);
+      opacity: 0.8;
     }
+
+    /* Status badges */
     .task-status {
-      padding: 5px 14px;
-      font-size: 10px;
-      font-weight: bold;
-      letter-spacing: 1px;
+      display: inline-block;
+      padding: 2px 10px;
+      font-size: 0.6rem;
+      font-weight: 600;
       text-transform: uppercase;
-      clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%);
+      letter-spacing: 0.5px;
+      border-radius: var(--radius-full);
     }
-    .status-pending { background: linear-gradient(135deg, #f39c12, #e67e22); color: #000; }
-    .status-running { background: linear-gradient(135deg, #00d9ff, #0077ff); color: #fff; animation: pulse 1.5s infinite; }
-    .status-done { background: linear-gradient(135deg, #27ae60, #2ecc71); color: #fff; }
-    .status-error { background: linear-gradient(135deg, #e74c3c, #c0392b); color: #fff; }
-    .status-stopped { background: linear-gradient(135deg, #95a5a6, #7f8c8d); color: #fff; }
+    .status-pending { background: var(--warning-subtle); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.3); }
+    .status-running { background: var(--accent-subtle); color: var(--accent); border: 1px solid var(--accent-border); animation: pulse 1.5s infinite; }
+    .status-done { background: var(--success-subtle); color: var(--success); border: 1px solid var(--success-border); }
+    .status-error { background: var(--error-subtle); color: var(--error); border: 1px solid var(--error-border); }
+    .status-stopped { background: rgba(113, 113, 122, 0.1); color: var(--text-muted); border: 1px solid rgba(113, 113, 122, 0.3); }
 
-    .task-actions { display: flex; align-items: center; gap: 10px; }
+    /* Task actions */
+    .task-actions { display: flex; align-items: center; gap: 0.375rem; }
     .btn-stop, .btn-delete {
-      width: 30px; height: 30px;
-      border: 1px solid;
-      cursor: pointer; font-size: 12px;
-      display: flex; align-items: center; justify-content: center;
-      clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
-      transition: all 0.2s;
+      width: 26px; height: 26px; padding: 0;
+      border-radius: var(--radius-sm);
+      border: 1px solid; cursor: pointer; font-size: 11px;
+      display: inline-flex; align-items: center; justify-content: center;
+      transition: all 0.15s;
     }
-    .btn-stop { background: rgba(231,76,60,0.8); border-color: #e74c3c; }
-    .btn-stop:hover { box-shadow: 0 0 15px rgba(231,76,60,0.5); }
-    .btn-delete { background: rgba(127,140,141,0.8); border-color: #7f8c8d; }
-    .btn-delete:hover { box-shadow: 0 0 15px rgba(127,140,141,0.5); }
+    .btn-stop { background: var(--error-subtle); border-color: var(--error-border); color: var(--error); }
+    .btn-stop:hover { background: rgba(239, 68, 68, 0.25); }
+    .btn-delete { background: rgba(113, 113, 122, 0.1); border-color: rgba(113, 113, 122, 0.3); color: var(--text-muted); }
+    .btn-delete:hover { background: rgba(113, 113, 122, 0.2); }
 
+    /* Task mission */
     .task-mission {
-      font-size: 13px;
-      color: #00d9ff;
-      margin-bottom: 15px;
-      padding: 12px;
-      background: rgba(0,217,255,0.05);
-      border-left: 2px solid #00d9ff;
-      font-family: 'Courier New', monospace;
+      font-size: 0.8rem;
+      color: var(--text-primary);
+      margin-bottom: 0.75rem;
+      padding: 0.625rem 0.875rem;
+      background: var(--accent-subtle);
+      border-left: 2px solid var(--accent);
+      border-radius: 0 var(--radius) var(--radius) 0;
     }
+
+    /* Task log (terminal) */
     .task-log {
-      font-family: 'Courier New', monospace;
-      font-size: 11px;
-      background: rgba(0,0,0,0.5);
-      padding: 15px;
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      line-height: 1.6;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 0.75rem;
       max-height: 200px;
       overflow-y: auto;
       white-space: pre-wrap;
       word-break: break-all;
-      border: 1px solid rgba(0,217,255,0.1);
-      color: #0f0;
+      border-radius: var(--radius);
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
     }
-    .task-log::-webkit-scrollbar { width: 6px; }
-    .task-log::-webkit-scrollbar-track { background: rgba(0,0,0,0.3); }
-    .task-log::-webkit-scrollbar-thumb { background: #00d9ff; }
+    .task-log::-webkit-scrollbar { width: 4px; }
+    .task-log::-webkit-scrollbar-track { background: transparent; }
+    .task-log::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 2px; }
+
+    /* Task result */
     .task-result {
-      margin-top: 15px;
-      padding: 15px;
-      background: rgba(39,174,96,0.1);
-      border: 1px solid rgba(39,174,96,0.3);
-      border-left: 3px solid #27ae60;
-      color: #2ecc71;
+      margin-top: 0.75rem;
+      padding: 0.625rem 0.875rem;
+      background: var(--success-subtle);
+      border: 1px solid var(--success-border);
+      border-left: 2px solid var(--success);
+      color: var(--success);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      font-size: 0.8rem;
     }
-    .log-tool { color: #f39c12; }
-    .log-success { color: #2ecc71; }
-    .log-error { color: #e74c3c; }
 
-    /* 통계 */
-    .stats {
-      display: flex;
-      gap: 25px;
-      margin-bottom: 25px;
-      padding: 20px 25px;
-      background: rgba(10,10,30,0.8);
-      border: 1px solid rgba(0,217,255,0.2);
-      clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
-    }
-    .stat { text-align: center; padding: 0 15px; border-right: 1px solid rgba(0,217,255,0.1); }
-    .stat:last-child { border-right: none; }
-    .stat-value {
-      font-size: 28px;
-      font-weight: bold;
-      color: #00d9ff;
-      font-family: 'Courier New', monospace;
-      text-shadow: 0 0 10px rgba(0,217,255,0.5);
-    }
-    .stat-label { font-size: 10px; color: #666; letter-spacing: 2px; text-transform: uppercase; margin-top: 5px; }
-    .connected { color: #2ecc71; text-shadow: 0 0 10px rgba(46,204,113,0.5); }
-    .disconnected { color: #e74c3c; text-shadow: 0 0 10px rgba(231,76,60,0.5); animation: pulse 1s infinite; }
+    /* Log colors */
+    .log-tool { color: var(--warning); }
+    .log-success { color: var(--success); }
+    .log-error { color: var(--error); }
 
-    /* 설정 패널 */
+    /* === Settings === */
     .settings-section {
-      background: #16213e;
-      border-radius: 12px;
-      padding: 24px;
-      margin-bottom: 20px;
+      margin-bottom: 1.5rem;
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem;
     }
-    .settings-section h3 {
-      color: #00d9ff;
-      margin-bottom: 16px;
-      font-size: 16px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .form-group {
-      margin-bottom: 16px;
-    }
-    .form-group label {
-      display: block;
-      margin-bottom: 8px;
-      color: #aaa;
-      font-size: 13px;
-    }
-    .form-group input {
-      width: 100%;
-      max-width: 500px;
-    }
-    .form-group small {
-      display: block;
-      margin-top: 6px;
-      color: #666;
-      font-size: 12px;
-    }
-    .toggle-group {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .toggle {
-      position: relative;
-      width: 50px;
-      height: 26px;
-    }
-    .toggle input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
+    .settings-section h3 { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; }
+    .form-group { margin-bottom: 1rem; }
+    .form-group label { margin-bottom: 0.375rem; }
+    .form-group input, .form-group select { max-width: 500px; }
+    .form-group small { display: block; margin-top: 0.25rem; color: var(--text-secondary); font-size: 0.72rem; }
+
+    /* === Toggle Switch === */
+    .toggle-group { display: flex; align-items: center; gap: 0.75rem; }
+    .toggle { position: relative; width: 44px; height: 24px; display: inline-block; flex-shrink: 0; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
     .toggle-slider {
-      position: absolute;
-      cursor: pointer;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background-color: #444;
-      border-radius: 26px;
-      transition: 0.3s;
+      position: absolute; cursor: pointer; inset: 0;
+      background-color: var(--bg-elevated); border: 1px solid var(--border);
+      border-radius: var(--radius-full); transition: 0.2s;
     }
     .toggle-slider:before {
-      position: absolute;
-      content: "";
-      height: 20px;
-      width: 20px;
-      left: 3px;
-      bottom: 3px;
-      background-color: white;
-      border-radius: 50%;
-      transition: 0.3s;
+      position: absolute; content: ""; height: 18px; width: 18px;
+      left: 2px; bottom: 2px; background-color: var(--text-muted);
+      border-radius: 50%; transition: 0.2s;
     }
-    .toggle input:checked + .toggle-slider {
-      background-color: #27ae60;
-    }
-    .toggle input:checked + .toggle-slider:before {
-      transform: translateX(24px);
-    }
-    .status-badge {
-      padding: 4px 12px;
-      border-radius: 20px;
-      font-size: 12px;
-    }
-    .status-badge.running { background: #27ae60; color: white; }
-    .status-badge.stopped { background: #e74c3c; color: white; }
+    .toggle input:checked + .toggle-slider { background-color: var(--accent-subtle); border-color: var(--accent-border); }
+    .toggle input:checked + .toggle-slider:before { transform: translateX(20px); background-color: var(--accent); }
 
+    /* === Status Badges === */
+    .status-badge {
+      padding: 2px 10px;
+      border-radius: var(--radius-full);
+      font-size: 0.7rem;
+      font-weight: 500;
+    }
+    .status-badge.running { background: var(--success-subtle); color: var(--success); border: 1px solid var(--success-border); }
+    .status-badge.stopped { background: var(--error-subtle); color: var(--error); border: 1px solid var(--error-border); }
+
+    /* === Alerts === */
     #settingsAlert {
-      position: fixed;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 9999;
-      min-width: 300px;
-      max-width: 500px;
+      position: fixed; bottom: 1.25rem; left: 50%; transform: translateX(-50%);
+      z-index: 9999; min-width: 300px; max-width: 500px;
     }
     .alert {
-      padding: 14px 24px;
-      border-radius: 8px;
-      font-size: 14px;
+      padding: 0.75rem 1.25rem;
+      border-radius: var(--radius-lg);
+      font-size: 0.8rem;
       text-align: center;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      box-shadow: var(--shadow-lg);
       animation: slideUp 0.3s ease;
     }
-    @keyframes slideUp {
-      from { transform: translateY(20px); opacity: 0; }
-      to { transform: translateY(0); opacity: 1; }
+    .alert-success {
+      background: rgba(34, 197, 94, 0.08);
+      border: 1px solid var(--success-border);
+      color: var(--success);
     }
-    .alert-success { background: #1a3a1a; border: 2px solid #27ae60; color: #2ecc71; }
-    .alert-error { background: #3a1a1a; border: 2px solid #e74c3c; color: #e74c3c; }
+    .alert-error {
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid var(--error-border);
+      color: var(--error);
+    }
 
-    /* 워크플로우 스타일 */
+    /* === Workflows === */
     .workflows-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-      gap: 15px;
-      margin-top: 15px;
+      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      gap: 0.75rem;
+      margin-top: 1rem;
     }
     .workflow-card {
-      background: rgba(10,10,30,0.9);
-      padding: 15px;
-      border: 1px solid rgba(0,217,255,0.2);
-      clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
-      transition: all 0.3s;
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem;
+      margin-bottom: 0;
+      transition: border-color 0.2s;
     }
-    .workflow-card:hover {
-      border-color: rgba(0,217,255,0.5);
-      box-shadow: 0 0 20px rgba(0,217,255,0.15);
-    }
-    .workflow-card.disabled {
-      opacity: 0.5;
-    }
-    .workflow-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 10px;
-    }
-    .workflow-name {
-      font-size: 14px;
-      color: #00d9ff;
-      font-weight: bold;
-    }
-    .workflow-desc {
-      font-size: 12px;
-      color: #888;
-      margin-bottom: 10px;
-    }
-    .workflow-meta {
-      font-size: 10px;
-      color: #666;
-      display: flex;
-      gap: 15px;
-    }
-    .workflow-actions {
-      display: flex;
-      gap: 8px;
-    }
-    .workflow-actions button {
-      padding: 5px 10px;
-      font-size: 11px;
-    }
+    .workflow-card:hover { border-color: var(--border-hover); }
+    .workflow-card.disabled { opacity: 0.45; }
+    .workflow-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+    .workflow-name { font-weight: 600; color: var(--accent); font-size: 0.9rem; }
+    .workflow-desc { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+    .workflow-meta { font-size: 0.65rem; color: var(--text-disabled); display: flex; gap: 1rem; }
+    .workflow-actions { display: flex; gap: 0.375rem; }
+    .workflow-actions button { padding: 0.25rem 0.5rem; font-size: 0.7rem; }
 
-    /* 단계 편집기 */
+    /* === Step Editor === */
     .step-card {
-      background: rgba(0,0,0,0.3);
-      border: 1px solid rgba(0,217,255,0.2);
-      padding: 15px;
-      margin-bottom: 10px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1rem;
+      margin-bottom: 0.75rem;
       position: relative;
+      transition: border-color 0.2s;
     }
-    .step-controls {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      display: flex;
-      gap: 5px;
-    }
+    .step-card:hover { border-color: var(--border-hover); }
+    .step-controls { position: absolute; top: 0.5rem; right: 0.5rem; display: flex; gap: 4px; }
     .step-move, .step-delete {
-      background: rgba(0,0,0,0.5);
-      border: 1px solid rgba(0,217,255,0.3);
-      color: #00d9ff;
-      width: 24px;
-      height: 24px;
-      cursor: pointer;
-      font-size: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: all 0.2s;
+      width: 24px; height: 24px; padding: 0;
+      border-radius: var(--radius-sm); cursor: pointer; font-size: 11px;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: 1px solid var(--border); background: transparent; color: var(--text-muted);
+      transition: all 0.15s;
     }
-    .step-move:hover {
-      background: rgba(0,217,255,0.2);
-      border-color: #00d9ff;
-    }
-    .step-move:disabled {
-      opacity: 0.3;
-      cursor: not-allowed;
-    }
-    .step-delete {
-      background: rgba(231,76,60,0.3);
-      border-color: #e74c3c;
-      color: #e74c3c;
-    }
-    .step-delete:hover {
-      background: rgba(231,76,60,0.5);
-    }
+    .step-move:hover { background: var(--accent-subtle); color: var(--accent); border-color: var(--accent-border); }
+    .step-move:disabled { opacity: 0.3; cursor: not-allowed; }
+    .step-delete { border-color: var(--error-border); color: var(--error); }
+    .step-delete:hover { background: var(--error-subtle); }
     .step-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 12px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid rgba(0,217,255,0.1);
-      padding-right: 90px;
+      display: flex; align-items: center; margin-bottom: 0.75rem;
+      padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); padding-right: 5rem;
     }
     .step-number {
-      background: linear-gradient(135deg, #00d9ff, #0077ff);
-      color: white;
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 12px;
-      font-weight: bold;
+      background: var(--accent-gradient);
+      color: #fff; width: 24px; height: 24px;
+      border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+      font-size: 0.7rem; font-weight: 700; flex-shrink: 0;
     }
-    .step-row {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 10px;
-      flex-wrap: wrap;
-    }
-    .step-row label {
-      min-width: 80px;
-      color: #888;
-      font-size: 12px;
-      display: flex;
-      align-items: center;
-    }
-    .step-row input, .step-row select {
-      flex: 1;
-      min-width: 150px;
-    }
+    .step-row { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap; align-items: center; }
+    .step-row label { min-width: 70px; font-size: 0.75rem; }
+    .step-row input, .step-row select { flex: 1; min-width: 150px; margin-bottom: 0; }
+    .prompt-container { margin-top: 0.75rem; }
+    .prompt-input, .mission-input { resize: vertical; }
+    .advanced-options { margin-top: 0.75rem; }
+    .advanced-options summary { cursor: pointer; font-size: 0.75rem; color: var(--text-muted); transition: color 0.15s; }
+    .advanced-options summary:hover { color: var(--accent); }
 
-    .prompt-container {
-      margin-top: 12px;
-    }
-    .prompt-input {
-      width: 100%;
-      min-height: 120px;
-      padding: 12px;
-      background: rgba(0,20,40,0.8);
-      border: 1px solid rgba(0,217,255,0.3);
-      color: #fff;
-      font-family: inherit;
-      font-size: 13px;
-      line-height: 1.5;
-      resize: vertical;
-      box-sizing: border-box;
-    }
-    .prompt-input:focus {
-      outline: none;
-      border-color: #00d9ff;
-      box-shadow: 0 0 10px rgba(0,217,255,0.2);
-    }
-    .prompt-input::placeholder {
-      color: #556;
-      font-size: 12px;
-    }
-    .advanced-options {
-      margin-top: 12px;
-      padding-top: 10px;
-      border-top: 1px dashed rgba(0,217,255,0.2);
-    }
-    .advanced-options summary {
-      cursor: pointer;
-      color: #888;
-      font-size: 12px;
-      user-select: none;
-    }
-    .advanced-options summary:hover {
-      color: #00d9ff;
-    }
-    .advanced-options[open] summary {
-      margin-bottom: 10px;
-    }
+    /* === Schedule === */
     .schedule-section {
-      background: rgba(0,100,150,0.1);
-      border: 1px solid rgba(0,217,255,0.2);
-      padding: 15px;
-      margin-top: 15px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1rem;
+      margin-top: 1rem;
+      background: var(--bg-surface);
     }
-    .schedule-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 10px;
-    }
-    .schedule-row label {
-      min-width: 80px;
-      color: #888;
-    }
+    .schedule-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; }
+    .schedule-row label { min-width: 70px; }
+    .schedule-row input, .schedule-row select { margin-bottom: 0; }
+
+    /* === Run Log === */
     .run-log-wf-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 10px;
-      margin-bottom: 5px;
-      background: rgba(0,0,0,0.3);
-      border: 1px solid rgba(0,217,255,0.1);
-      cursor: pointer;
-      transition: all 0.2s;
-      font-size: 12px;
+      display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem;
+      margin-bottom: 4px; border-radius: var(--radius);
+      border: 1px solid var(--border); cursor: pointer;
+      font-size: 0.75rem; transition: all 0.15s; color: var(--text-secondary);
     }
-    .run-log-wf-item:hover {
-      background: rgba(0,217,255,0.1);
-      border-color: rgba(0,217,255,0.3);
-    }
-    .run-log-wf-item.active {
-      background: rgba(0,217,255,0.2);
-      border-color: #00d9ff;
-      cursor: default;
-    }
-    .run-log-wf-status {
-      font-size: 10px;
-    }
-    .run-log-wf-name {
-      flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
+    .run-log-wf-item:hover { background: var(--glass-hover); border-color: var(--border-hover); }
+    .run-log-wf-item.active { background: var(--accent-subtle); border-color: var(--accent-border); color: var(--text-primary); cursor: default; }
+    .run-log-wf-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* === Misc Sections === */
     .mission-section {
-      background: rgba(0,50,100,0.2);
-      border: 1px solid rgba(0,217,255,0.3);
-      padding: 15px;
-    }
-    .mission-input {
-      width: 100%;
-      min-height: 150px;
-      padding: 15px;
-      background: rgba(0,20,40,0.9);
-      border: 2px solid rgba(0,217,255,0.4);
-      color: #fff;
-      font-family: inherit;
-      font-size: 14px;
-      line-height: 1.6;
-      resize: vertical;
-      box-sizing: border-box;
-    }
-    .mission-input:focus {
-      outline: none;
-      border-color: #00d9ff;
-      box-shadow: 0 0 15px rgba(0,217,255,0.3);
-    }
-    .mission-input::placeholder {
-      color: #556;
-      font-size: 13px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1rem;
+      background: var(--bg-surface);
     }
     .steps-advanced {
-      border: 1px dashed rgba(0,217,255,0.2);
-      padding: 10px 15px;
+      border: 1px dashed var(--border);
+      border-radius: var(--radius-lg);
+      padding: 0.75rem 1rem;
     }
-    .steps-advanced[open] {
-      border-style: solid;
+    .steps-advanced[open] { border-style: solid; border-color: var(--border-hover); }
+
+    /* === Article (Pico fallback) === */
+    article { margin-bottom: 0.75rem; }
+
+    /* === Responsive === */
+    @media (max-width: 768px) {
+      .container { padding: 1rem; }
+      .tasks-grid { grid-template-columns: 1fr; }
+      .workflows-grid { grid-template-columns: 1fr; }
+      .input-area { flex-direction: column; }
+      .input-area select { width: 100%; }
+      .stats { padding: 0.75rem; }
+      .stat { padding: 0 0.5rem; }
+      .stat-value { font-size: 1.25rem; }
     }
   </style>
 </head>
 <body>
-  <div class="container">
+  <main class="container">
     <h1>🤖 Pi-Browser Control</h1>
 
     <div class="tabs">
-      <button class="tab active" onclick="showTab('tasks')">📋 작업</button>
-      <button class="tab" onclick="showTab('workflows')">🔄 워크플로우</button>
-      <button class="tab" onclick="showTab('settings')">⚙️ 설정</button>
+      <div role="group">
+        <button class="active" onclick="showTab('tasks')">📋 작업</button>
+        <button onclick="showTab('workflows')">🔄 워크플로우</button>
+        <button onclick="showTab('settings')">⚙️ 설정</button>
+      </div>
     </div>
 
     <!-- 작업 탭 -->
@@ -816,12 +781,12 @@ const HTML_PAGE = `<!DOCTYPE html>
       </div>
 
       <div class="input-area">
-        <select id="taskProfile" class="cyber-select" style="width:200px;">
+        <select id="taskProfile" style="width:200px;">
           <option value="">🔄 프로필 로딩...</option>
         </select>
         <input type="text" id="taskInput" placeholder="명령 입력 (예: 네이버에서 날씨 알려줘)" autocomplete="off" />
-        <button class="btn-primary" onclick="addTask()">▶ 실행</button>
-        <button class="btn-danger" onclick="clearDone()">🗑 완료 삭제</button>
+        <button onclick="addTask()">▶ 실행</button>
+        <button class="danger" onclick="clearDone()">🗑 완료 삭제</button>
       </div>
 
       <div class="tasks-grid" id="tasksGrid"></div>
@@ -833,10 +798,10 @@ const HTML_PAGE = `<!DOCTYPE html>
 
       <!-- 워크플로우 목록 -->
       <div id="workflowList" class="settings-section">
-        <h3>📁 저장된 워크플로우 <button class="btn-primary btn-sm" onclick="createNewWorkflow()">+ 새로 만들기</button></h3>
+        <h3>📁 저장된 워크플로우 <button class="btn-sm" onclick="createNewWorkflow()">+ 새로 만들기</button></h3>
         <div style="margin:15px 0;display:flex;align-items:center;gap:10px;">
           <label style="color:#888;">🖥️ 브라우저:</label>
-          <select id="wfProfile" class="cyber-select" style="max-width:300px;">
+          <select id="wfProfile" class="" style="max-width:300px;">
             <option value="">로딩 중...</option>
           </select>
         </div>
@@ -939,9 +904,9 @@ const HTML_PAGE = `<!DOCTYPE html>
         </div>
 
         <div style="margin-top:20px;padding-top:20px;border-top:1px solid rgba(0,217,255,0.2);">
-          <button class="btn-primary" onclick="saveCurrentWorkflow()">💾 저장</button>
-          <button class="btn-success" onclick="testCurrentWorkflow()">▶ 테스트 실행</button>
-          <button class="btn-secondary" onclick="cancelEdit()">취소</button>
+          <button class="" onclick="saveCurrentWorkflow()">💾 저장</button>
+          <button class="success" onclick="testCurrentWorkflow()">▶ 테스트 실행</button>
+          <button class="secondary" onclick="cancelEdit()">취소</button>
         </div>
       </div>
 
@@ -1008,14 +973,14 @@ const HTML_PAGE = `<!DOCTYPE html>
 
         <div class="form-group">
           <label>Chrome 프로필 <button class="btn-sm" onclick="refreshProfiles()">🔄</button></label>
-          <select id="telegramProfile" class="cyber-select" style="max-width:500px;width:100%;">
+          <select id="telegramProfile" class="" style="max-width:500px;width:100%;">
             <option value="">🔄 로딩...</option>
           </select>
           <small>텔레그램에서 실행할 때 사용할 Chrome 프로필</small>
         </div>
 
-        <button class="btn-primary" onclick="saveTelegramSettings()">💾 저장</button>
-        <button class="btn-secondary" onclick="testTelegram()">🧪 테스트</button>
+        <button class="" onclick="saveTelegramSettings()">💾 저장</button>
+        <button class="secondary" onclick="testTelegram()">🧪 테스트</button>
       </div>
 
       <div class="settings-section">
@@ -1023,7 +988,7 @@ const HTML_PAGE = `<!DOCTYPE html>
 
         <div class="form-group">
           <label>Provider</label>
-          <select id="aiProvider" class="cyber-select" style="max-width:500px;width:100%;" onchange="toggleOllamaSettings()">
+          <select id="aiProvider" class="" style="max-width:500px;width:100%;" onchange="toggleOllamaSettings()">
             <option value="google">Google (Gemini)</option>
             <option value="openai">OpenAI (GPT)</option>
             <option value="openai-codex">OpenAI Codex (ChatGPT OAuth)</option>
@@ -1035,14 +1000,14 @@ const HTML_PAGE = `<!DOCTYPE html>
 
         <div class="form-group">
           <label>Model</label>
-          <select id="aiModel" class="cyber-select" style="max-width:500px;width:100%;">
+          <select id="aiModel" class="" style="max-width:500px;width:100%;">
             <option value="gemini-2.0-flash">gemini-2.0-flash</option>
           </select>
         </div>
 
         <div class="form-group">
           <label>인증 방식</label>
-          <select id="aiAuthMode" class="cyber-select" style="max-width:500px;width:100%;">
+          <select id="aiAuthMode" class="" style="max-width:500px;width:100%;">
             <option value="auto">자동 (API 우선, 없으면 OAuth)</option>
             <option value="api">API 키만 사용</option>
             <option value="oauth">OAuth만 사용</option>
@@ -1055,7 +1020,7 @@ const HTML_PAGE = `<!DOCTYPE html>
             <div style="display:flex;align-items:center;gap:15px;margin-bottom:15px;flex-wrap:wrap;">
               <span id="ollamaStatusIcon" style="font-size:24px;">⚪</span>
               <span id="ollamaStatusText" style="color:#888;font-size:14px;">연결 상태 확인 필요</span>
-              <button class="btn-primary" onclick="testOllama()" style="padding:10px 20px;">🔌 연결 테스트</button>
+              <button class="" onclick="testOllama()" style="padding:10px 20px;">🔌 연결 테스트</button>
             </div>
             <div style="margin-bottom:15px;">
               <label style="display:block;margin-bottom:5px;color:#aaa;">Ollama 서버 URL</label>
@@ -1063,14 +1028,14 @@ const HTML_PAGE = `<!DOCTYPE html>
             </div>
             <div>
               <label style="display:block;margin-bottom:5px;color:#aaa;">설치된 모델</label>
-              <select id="ollamaModels" class="cyber-select" style="max-width:400px;width:100%;" onchange="selectOllamaModel()">
+              <select id="ollamaModels" class="" style="max-width:400px;width:100%;" onchange="selectOllamaModel()">
                 <option value="">🔌 연결 테스트를 먼저 하세요</option>
               </select>
             </div>
           </div>
         </div>
 
-        <button class="btn-primary" onclick="saveAISettings()">💾 저장</button>
+        <button class="" onclick="saveAISettings()">💾 저장</button>
       </div>
 
       <div class="settings-section">
@@ -1078,7 +1043,7 @@ const HTML_PAGE = `<!DOCTYPE html>
 
         <div class="form-group">
           <label>실행 모드</label>
-          <select id="browserMode" class="cyber-select">
+          <select id="browserMode" class="">
             <option value="cdp">🖥️ CDP 모드 (새 Chrome 실행)</option>
             <option value="extension">🔌 Extension 모드 (기존 Chrome 연결)</option>
           </select>
@@ -1087,7 +1052,7 @@ const HTML_PAGE = `<!DOCTYPE html>
 
         <div class="form-group">
           <label>Chrome 프로필 <button class="btn-sm" onclick="refreshProfiles()">🔄 새로고침</button></label>
-          <select id="browserProfile" class="cyber-select">
+          <select id="browserProfile" class="">
             <option value="">로딩 중...</option>
           </select>
           <small>로그인 상태, 쿠키, 확장 프로그램이 유지되는 프로필 선택</small>
@@ -1132,7 +1097,7 @@ const HTML_PAGE = `<!DOCTYPE html>
           <small>Chrome 프로필 저장 위치 (로그인 상태 유지)</small>
         </div>
 
-        <button class="btn-primary" onclick="saveBrowserSettings()">💾 저장</button>
+        <button class="" onclick="saveBrowserSettings()">💾 저장</button>
       </div>
 
       <div class="settings-section">
@@ -1161,23 +1126,27 @@ const HTML_PAGE = `<!DOCTYPE html>
           <small>노션 데이터베이스 URL에서 복사 (예: notion.so/[Database ID]?v=...)</small>
         </div>
 
-        <button class="btn-primary" onclick="saveNotionSettings()">💾 저장</button>
-        <button class="btn-secondary" onclick="testNotion()">🧪 연결 테스트</button>
-        <button class="btn-success" onclick="openNotion()">🔗 Notion 열기</button>
+        <button class="" onclick="saveNotionSettings()">💾 저장</button>
+        <button class="secondary" onclick="testNotion()">🧪 연결 테스트</button>
+        <button class="success" onclick="openNotion()">🔗 Notion 열기</button>
       </div>
     </div>
-  </div>
-
-  <script>
+  </main>  <script>
     let ws;
     let tasks = new Map();
     let taskIdCounter = 0;
     let settings = {};
 
     function showTab(tabId) {
-      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      const btns = document.querySelectorAll('.tabs [role="group"] > button');
+      btns.forEach(b => {
+        if (b.getAttribute('onclick')?.includes(tabId)) {
+          b.classList.add('active');
+        } else {
+          b.classList.remove('active');
+        }
+      });
       document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-      document.querySelector(\`[onclick="showTab('\${tabId}')"]\`).classList.add('active');
       document.getElementById('tab-' + tabId).classList.add('active');
     }
 
@@ -1852,9 +1821,9 @@ const HTML_PAGE = `<!DOCTYPE html>
           <div class="workflow-header">
             <span class="workflow-name">\${wf.enabled ? '●' : '○'} \${escapeHtml(wf.name)}</span>
             <div class="workflow-actions">
-              <button class="btn-primary" onclick="runWorkflow('\${wf.id}')" title="실행">▶</button>
-              <button class="btn-secondary" onclick="editWorkflow('\${wf.id}')" title="편집">✏️</button>
-              <button class="btn-danger" onclick="deleteWorkflowConfirm('\${wf.id}')" title="삭제">🗑</button>
+              <button class="" onclick="runWorkflow('\${wf.id}')" title="실행">▶</button>
+              <button class="secondary" onclick="editWorkflow('\${wf.id}')" title="편집">✏️</button>
+              <button class="danger" onclick="deleteWorkflowConfirm('\${wf.id}')" title="삭제">🗑</button>
             </div>
           </div>
           \${wf.description ? \`<div class="workflow-desc">\${escapeHtml(wf.description)}</div>\` : ''}
