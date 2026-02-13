@@ -3,7 +3,8 @@
  * 주기적으로 워크플로우를 실행하는 스케줄러
  */
 
-import { loadWorkflows, saveWorkflow, type Workflow } from "./storage.js";
+import { loadWorkflows, saveWorkflow } from "./storage.js";
+import type { Workflow } from "./types.js";
 
 export interface SchedulerCallbacks {
   onWorkflowRun: (workflow: Workflow) => Promise<void>;

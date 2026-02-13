@@ -28,10 +28,12 @@ export interface Settings {
     allowedUsers?: number[];
     enabled?: boolean;
     profile?: string; // 텔레그램에서 사용할 Chrome 프로필 경로
+    debugLogs?: boolean; // 텔레그램 상세 디버그 로그 표시
   };
   ai?: {
     provider?: string;
     model?: string;
+    authMode?: "auto" | "api" | "oauth";
     ollamaUrl?: string;
   };
   browser?: {
@@ -67,6 +69,18 @@ export function loadSettings(): Settings {
 export function saveSettings(settings: Settings): void {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
   fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2));
+}
+
+function sanitizeAiSettings(ai?: Settings["ai"]): Settings["ai"] {
+  const authModeRaw = typeof ai?.authMode === "string" ? ai.authMode : "auto";
+  const authMode = authModeRaw === "api" || authModeRaw === "oauth" ? authModeRaw : "auto";
+
+  return {
+    provider: ai?.provider,
+    model: ai?.model,
+    ollamaUrl: ai?.ollamaUrl,
+    authMode,
+  };
 }
 
 // Chrome 프로필 디렉토리 경로
@@ -981,6 +995,18 @@ const HTML_PAGE = `<!DOCTYPE html>
         </div>
 
         <div class="form-group">
+          <div class="toggle-group">
+            <label class="toggle">
+              <input type="checkbox" id="telegramDebugLogs" onchange="updateTelegramDebugBadge()">
+              <span class="toggle-slider"></span>
+            </label>
+            <span>🐞 디버그 로그</span>
+            <span id="telegramDebugBadge" class="status-badge stopped">OFF</span>
+          </div>
+          <small>문제 분석용 상세 로그를 작업 카드에 표시합니다.</small>
+        </div>
+
+        <div class="form-group">
           <label>Chrome 프로필 <button class="btn-sm" onclick="refreshProfiles()">🔄</button></label>
           <select id="telegramProfile" class="cyber-select" style="max-width:500px;width:100%;">
             <option value="">🔄 로딩...</option>
@@ -1000,6 +1026,7 @@ const HTML_PAGE = `<!DOCTYPE html>
           <select id="aiProvider" class="cyber-select" style="max-width:500px;width:100%;" onchange="toggleOllamaSettings()">
             <option value="google">Google (Gemini)</option>
             <option value="openai">OpenAI (GPT)</option>
+            <option value="openai-codex">OpenAI Codex (ChatGPT OAuth)</option>
             <option value="anthropic">Anthropic (Claude)</option>
             <option value="groq">Groq</option>
             <option value="ollama">Ollama (로컬)</option>
@@ -1010,6 +1037,15 @@ const HTML_PAGE = `<!DOCTYPE html>
           <label>Model</label>
           <select id="aiModel" class="cyber-select" style="max-width:500px;width:100%;">
             <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>인증 방식</label>
+          <select id="aiAuthMode" class="cyber-select" style="max-width:500px;width:100%;">
+            <option value="auto">자동 (API 우선, 없으면 OAuth)</option>
+            <option value="api">API 키만 사용</option>
+            <option value="oauth">OAuth만 사용</option>
           </select>
         </div>
 
@@ -1244,6 +1280,7 @@ const HTML_PAGE = `<!DOCTYPE html>
         updateStats();
       } else if (msg.type === 'error') {
         task.logs.push('[ERROR] ' + msg.text);
+        task.result = '❌ ' + msg.text;
         task.status = 'error';
         updateTaskCard(msg.taskId);
         updateStats();
@@ -1251,18 +1288,22 @@ const HTML_PAGE = `<!DOCTYPE html>
     }
 
     function applySettings() {
-      if (settings.telegram) {
-        document.getElementById('telegramEnabled').checked = settings.telegram.enabled || false;
-        document.getElementById('telegramToken').value = settings.telegram.botToken || '';
-        document.getElementById('telegramUsers').value = (settings.telegram.allowedUsers || []).join(', ');
-        if (settings.telegram.profile) {
-          setTimeout(() => {
-            document.getElementById('telegramProfile').value = settings.telegram.profile;
-          }, 100);
-        }
+      const tgSettings = settings.telegram || {};
+      document.getElementById('telegramEnabled').checked = tgSettings.enabled || false;
+      document.getElementById('telegramToken').value = tgSettings.botToken || '';
+      document.getElementById('telegramUsers').value = (tgSettings.allowedUsers || []).join(', ');
+      document.getElementById('telegramDebugLogs').checked = tgSettings.debugLogs || false;
+      updateTelegramDebugBadge();
+
+      if (tgSettings.profile) {
+        setTimeout(() => {
+          document.getElementById('telegramProfile').value = tgSettings.profile;
+        }, 100);
       }
+
       if (settings.ai) {
         document.getElementById('aiProvider').value = settings.ai.provider || 'google';
+        document.getElementById('aiAuthMode').value = settings.ai.authMode || 'auto';
         document.getElementById('ollamaUrl').value = settings.ai.ollamaUrl || 'http://localhost:11434';
         // 모델 목록 업데이트 후 값 설정
         toggleOllamaSettings();
@@ -1377,6 +1418,13 @@ const HTML_PAGE = `<!DOCTYPE html>
       }
     }
 
+    function updateTelegramDebugBadge() {
+      const enabled = document.getElementById('telegramDebugLogs').checked;
+      const badge = document.getElementById('telegramDebugBadge');
+      badge.textContent = enabled ? 'ON' : 'OFF';
+      badge.className = 'status-badge ' + (enabled ? 'running' : 'stopped');
+    }
+
     function updateExtensionStatus(connected) {
       const el = document.getElementById('extensionStatus');
       if (connected) {
@@ -1399,10 +1447,11 @@ const HTML_PAGE = `<!DOCTYPE html>
       const users = usersStr ? usersStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)) : [];
       const enabled = document.getElementById('telegramEnabled').checked;
       const profile = document.getElementById('telegramProfile').value;
+      const debugLogs = document.getElementById('telegramDebugLogs').checked;
 
       ws.send(JSON.stringify({
         type: 'saveTelegram',
-        settings: { botToken: token, allowedUsers: users, enabled, profile }
+        settings: { botToken: token, allowedUsers: users, enabled, profile, debugLogs }
       }));
     }
 
@@ -1414,11 +1463,12 @@ const HTML_PAGE = `<!DOCTYPE html>
     function saveAISettings() {
       const provider = document.getElementById('aiProvider').value;
       const model = document.getElementById('aiModel').value;
+      const authMode = document.getElementById('aiAuthMode').value;
       const ollamaUrl = document.getElementById('ollamaUrl').value.trim() || 'http://localhost:11434';
 
       ws.send(JSON.stringify({
         type: 'saveAI',
-        settings: { provider, model, ollamaUrl }
+        settings: { provider, model, authMode, ollamaUrl }
       }));
     }
 
@@ -1443,6 +1493,13 @@ const HTML_PAGE = `<!DOCTYPE html>
         { value: 'gpt-5.2', label: 'GPT-5.2 [R]' },
         { value: 'o3-mini', label: 'o3-mini [R]' },
         { value: 'o4-mini', label: 'o4-mini [R]' },
+      ],
+      'openai-codex': [
+        { value: 'gpt-5.1', label: 'GPT-5.1 (Codex) [R]' },
+        { value: 'gpt-5.1-codex-max', label: 'GPT-5.1 Codex Max [R]' },
+        { value: 'gpt-5.1-codex-mini', label: 'GPT-5.1 Codex Mini [R]' },
+        { value: 'gpt-5.2', label: 'GPT-5.2 (Codex) [R]' },
+        { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex [R]' },
       ],
       anthropic: [
         { value: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5 (추천) [R]' },
@@ -2218,11 +2275,11 @@ export async function saveResultToNotion(
     });
 
     if (!dbRes.ok) {
-      const err = await dbRes.json();
+      const err = await dbRes.json() as { message?: string };
       return { success: false, message: `데이터베이스 조회 실패: ${err.message || dbRes.status}` };
     }
 
-    const dbData = await dbRes.json();
+    const dbData = await dbRes.json() as { properties?: Record<string, unknown> };
     const properties = dbData.properties || {};
 
     // title 타입 속성 찾기
@@ -2300,7 +2357,7 @@ export async function saveResultToNotion(
       console.log(`[Notion] 결과 저장 완료: ${taskId}`);
       return { success: true, message: "Notion에 저장되었습니다" };
     } else {
-      const err = await res.json();
+      const err = await res.json() as { message?: string };
       console.error(`[Notion] 저장 실패:`, err);
       return { success: false, message: `Notion 저장 실패: ${err.message || res.status}` };
     }
@@ -2314,6 +2371,8 @@ export function startWebClient(config: WebClientConfig): Promise<{ settings: Set
   return new Promise((resolve) => {
     const { port, onTask, onTelegramStart, onTelegramStop, onSettingsChange, getProfiles, isExtensionConnected } = config;
     let settings = loadSettings();
+    settings.ai = sanitizeAiSettings(settings.ai);
+    saveSettings(settings);
     let telegramRunning = false;
 
     const server = http.createServer((req, res) => {
@@ -2401,9 +2460,14 @@ export function startWebClient(config: WebClientConfig): Promise<{ settings: Set
             } else {
               try {
                 const res = await fetch(`https://api.telegram.org/bot${testToken}/getMe`);
-                const data = await res.json();
+                const data = await res.json() as {
+                  ok?: boolean;
+                  result?: { username?: string };
+                  description?: string;
+                };
                 if (data.ok) {
-                  ws.send(JSON.stringify({ type: "alert", success: true, message: `✅ 연결 성공! 봇: @${data.result.username}` }));
+                  const username = data.result?.username || "unknown";
+                  ws.send(JSON.stringify({ type: "alert", success: true, message: `✅ 연결 성공! 봇: @${username}` }));
                 } else {
                   ws.send(JSON.stringify({ type: "alert", success: false, message: `❌ 연결 실패: ${data.description}` }));
                 }
@@ -2418,12 +2482,12 @@ export function startWebClient(config: WebClientConfig): Promise<{ settings: Set
             try {
               const res = await fetch(url + "/api/tags");
               if (res.ok) {
-                const data = await res.json();
-                const models = data.models || [];
+                const data = await res.json() as { models?: Array<{ name?: string; size?: number }> };
+                const models = Array.isArray(data.models) ? data.models : [];
                 ws.send(JSON.stringify({
                   type: "ollamaStatus",
                   connected: true,
-                  models: models.map((m: any) => ({
+                  models: models.map((m) => ({
                     name: m.name,
                     size: m.size ? (m.size / 1024 / 1024 / 1024).toFixed(1) + "GB" : ""
                   })),
@@ -2438,7 +2502,7 @@ export function startWebClient(config: WebClientConfig): Promise<{ settings: Set
           }
 
           else if (msg.type === "saveAI") {
-            settings.ai = msg.settings;
+            settings.ai = sanitizeAiSettings(msg.settings);
             saveSettings(settings);
             onSettingsChange?.(settings);
             ws.send(JSON.stringify({ type: "settings", settings }));
@@ -2472,14 +2536,14 @@ export function startWebClient(config: WebClientConfig): Promise<{ settings: Set
                 }
               });
               if (res.ok) {
-                const data = await res.json();
+                const data = await res.json() as { title?: Array<{ plain_text?: string }> };
                 ws.send(JSON.stringify({
                   type: "alert",
                   success: true,
                   message: `Notion 연결 성공! 데이터베이스: ${data.title?.[0]?.plain_text || databaseId}`
                 }));
               } else {
-                const err = await res.json();
+                const err = await res.json() as { message?: string };
                 ws.send(JSON.stringify({
                   type: "alert",
                   success: false,
@@ -2622,7 +2686,7 @@ export function startWebClient(config: WebClientConfig): Promise<{ settings: Set
 if (import.meta.url === `file://${process.argv[1]}`) {
   startWebClient({
     port: 3000,
-    onTask: async () => ({ success: true, message: "Standalone 모드에서는 작업 실행이 제한됩니다" }),
+    onTask: async () => {},
     getProfiles: () => scanChromeProfiles(),
     isExtensionConnected: () => false,
   }).catch(console.error);

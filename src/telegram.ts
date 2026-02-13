@@ -20,6 +20,57 @@ export interface MessageContext {
 
 let bot: Bot | null = null;
 
+const TELEGRAM_MAX_MESSAGE_LENGTH = 4000;
+
+function normalizeTelegramReply(text: string | undefined | null): string {
+  const trimmed = (text ?? "").trim();
+  return trimmed.length > 0 ? trimmed : "✅ 작업은 완료됐지만 응답 내용이 비어 있습니다.";
+}
+
+function splitTelegramMessage(text: string, maxLength: number = TELEGRAM_MAX_MESSAGE_LENGTH): string[] {
+  if (text.length <= maxLength) return [text];
+
+  const chunks: string[] = [];
+  let start = 0;
+
+  while (start < text.length) {
+    let end = Math.min(start + maxLength, text.length);
+
+    // 너무 기계적으로 잘리지 않게 줄바꿈/공백 기준으로 분할
+    if (end < text.length) {
+      const newline = text.lastIndexOf("\n", end);
+      const space = text.lastIndexOf(" ", end);
+      const splitAt = Math.max(newline, space);
+      if (splitAt > start + 200) {
+        end = splitAt;
+      }
+    }
+
+    chunks.push(text.slice(start, end).trim());
+    start = end;
+  }
+
+  return chunks.filter((chunk) => chunk.length > 0);
+}
+
+async function safeReply(ctx: Context, text: string, useHtml: boolean = true): Promise<void> {
+  const normalized = normalizeTelegramReply(text);
+  const chunks = splitTelegramMessage(normalized);
+
+  for (const chunk of chunks) {
+    if (useHtml) {
+      try {
+        await ctx.reply(chunk, { parse_mode: "HTML" });
+        continue;
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        console.warn(`[Telegram] HTML 응답 전송 실패, 일반 텍스트로 재시도: ${errMsg}`);
+      }
+    }
+    await ctx.reply(chunk);
+  }
+}
+
 export async function startTelegramBot(config: TelegramBotConfig): Promise<Bot> {
   const { token, allowedUsers, onMessage } = config;
 
@@ -65,18 +116,21 @@ export async function startTelegramBot(config: TelegramBotConfig): Promise<Bot> 
       userId: userId!,
       username,
       replyTo: async (reply: string) => {
-        await ctx.reply(reply, { parse_mode: "HTML" });
+        await safeReply(ctx, reply, true);
       },
     };
 
     try {
       const response = await onMessage(text, messageCtx);
-      if (response) {
-        await ctx.reply(response, { parse_mode: "HTML" });
-      }
+      await safeReply(ctx, response, true);
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      await ctx.reply(`❌ 에러: ${errMsg}`);
+      try {
+        await safeReply(ctx, `❌ 에러: ${errMsg}`, false);
+      } catch (replyError) {
+        const replyErrMsg = replyError instanceof Error ? replyError.message : String(replyError);
+        console.error("[Telegram] 에러 응답 전송 실패:", replyErrMsg);
+      }
     }
   });
 
