@@ -17,6 +17,7 @@ import {
   type Workflow,
   type WorkflowStep,
 } from "./workflow/index.js";
+import { getAuthSourceSummary, type AuthSourceSummary } from "./auth.js";
 
 // 설정 파일 경로
 const CONFIG_DIR = path.join(os.homedir(), ".pi-browser");
@@ -28,12 +29,12 @@ export interface Settings {
     allowedUsers?: number[];
     enabled?: boolean;
     profile?: string; // 텔레그램에서 사용할 Chrome 프로필 경로
-    debugLogs?: boolean; // 텔레그램 상세 디버그 로그 표시
+    debugLogs?: boolean; // 레거시 설정 (전역 debugLogs로 마이그레이션)
   };
+  debugLogs?: boolean; // 웹/텔레그램 상세 디버그 로그 표시
   ai?: {
     provider?: string;
     model?: string;
-    authMode?: "auto" | "api" | "oauth";
     ollamaUrl?: string;
   };
   browser?: {
@@ -72,14 +73,10 @@ export function saveSettings(settings: Settings): void {
 }
 
 function sanitizeAiSettings(ai?: Settings["ai"]): Settings["ai"] {
-  const authModeRaw = typeof ai?.authMode === "string" ? ai.authMode : "auto";
-  const authMode = authModeRaw === "api" || authModeRaw === "oauth" ? authModeRaw : "auto";
-
   return {
     provider: ai?.provider,
     model: ai?.model,
     ollamaUrl: ai?.ollamaUrl,
-    authMode,
   };
 }
 
@@ -395,6 +392,7 @@ const HTML_PAGE = `<!DOCTYPE html>
     /* === Stats Bar === */
     .stats {
       display: flex;
+      align-items: stretch;
       gap: 0;
       margin-bottom: 1.75rem;
       padding: 0.875rem 1.25rem;
@@ -406,6 +404,10 @@ const HTML_PAGE = `<!DOCTYPE html>
       flex-wrap: wrap;
     }
     .stat {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
       text-align: center;
       padding: 0 1rem;
       border-right: 1px solid var(--border);
@@ -427,8 +429,18 @@ const HTML_PAGE = `<!DOCTYPE html>
       letter-spacing: 1px;
       margin-top: 2px;
     }
-    .connected { color: var(--success); font-size: 0.8rem; }
-    .disconnected { color: var(--error); animation: pulse 1.5s infinite; font-size: 0.8rem; }
+    .connected,
+    .disconnected {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 1.5rem;
+      font-size: 0.8rem;
+      line-height: 1;
+      width: 100%;
+    }
+    .connected { color: var(--success); }
+    .disconnected { color: var(--error); animation: pulse 1.5s infinite; }
 
     /* === Input Area === */
     .input-area {
@@ -593,6 +605,7 @@ const HTML_PAGE = `<!DOCTYPE html>
     }
     .status-badge.running { background: var(--success-subtle); color: var(--success); border: 1px solid var(--success-border); }
     .status-badge.stopped { background: var(--error-subtle); color: var(--error); border: 1px solid var(--error-border); }
+    .status-badge.warning { background: var(--warning-subtle); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.3); }
 
     /* === Alerts === */
     #settingsAlert {
@@ -960,18 +973,6 @@ const HTML_PAGE = `<!DOCTYPE html>
         </div>
 
         <div class="form-group">
-          <div class="toggle-group">
-            <label class="toggle">
-              <input type="checkbox" id="telegramDebugLogs" onchange="updateTelegramDebugBadge()">
-              <span class="toggle-slider"></span>
-            </label>
-            <span>🐞 디버그 로그</span>
-            <span id="telegramDebugBadge" class="status-badge stopped">OFF</span>
-          </div>
-          <small>문제 분석용 상세 로그를 작업 카드에 표시합니다.</small>
-        </div>
-
-        <div class="form-group">
           <label>Chrome 프로필 <button class="btn-sm" onclick="refreshProfiles()">🔄</button></label>
           <select id="telegramProfile" class="" style="max-width:500px;width:100%;">
             <option value="">🔄 로딩...</option>
@@ -988,7 +989,7 @@ const HTML_PAGE = `<!DOCTYPE html>
 
         <div class="form-group">
           <label>Provider</label>
-          <select id="aiProvider" class="" style="max-width:500px;width:100%;" onchange="toggleOllamaSettings()">
+          <select id="aiProvider" class="" style="max-width:500px;width:100%;" onchange="toggleOllamaSettings(); requestAuthSourcePreview();">
             <option value="google">Google (Gemini)</option>
             <option value="openai">OpenAI (GPT)</option>
             <option value="openai-codex">OpenAI Codex (ChatGPT OAuth)</option>
@@ -1006,12 +1007,12 @@ const HTML_PAGE = `<!DOCTYPE html>
         </div>
 
         <div class="form-group">
-          <label>인증 방식</label>
-          <select id="aiAuthMode" class="" style="max-width:500px;width:100%;">
-            <option value="auto">자동 (API 우선, 없으면 OAuth)</option>
-            <option value="api">API 키만 사용</option>
-            <option value="oauth">OAuth만 사용</option>
-          </select>
+          <label>인증 소스</label>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span id="aiAuthSourceBadge" class="status-badge stopped">확인 필요</span>
+            <span id="aiAuthSourceText" style="font-size:13px;color:#bbb;">저장된 설정 기준으로 자동 판별</span>
+          </div>
+          <small id="aiAuthSourceHint">Provider 기준으로 자동으로 인증 소스를 선택합니다.</small>
         </div>
 
         <div id="ollamaSettings" style="display:none;">
@@ -1101,6 +1102,24 @@ const HTML_PAGE = `<!DOCTYPE html>
       </div>
 
       <div class="settings-section">
+        <h3>🐞 디버깅</h3>
+
+        <div class="form-group">
+          <div class="toggle-group">
+            <label class="toggle">
+              <input type="checkbox" id="debugLogs" onchange="updateDebugBadge()">
+              <span class="toggle-slider"></span>
+            </label>
+            <span>상세 디버그 로그 (웹/텔레그램 공통)</span>
+            <span id="debugBadge" class="status-badge stopped">OFF</span>
+          </div>
+          <small>[DEBUG] 로그를 작업 카드에 표시합니다.</small>
+        </div>
+
+        <button class="" onclick="saveDebugSettings()">💾 저장</button>
+      </div>
+
+      <div class="settings-section">
         <h3>📝 Notion 연동</h3>
 
         <div class="form-group">
@@ -1136,6 +1155,7 @@ const HTML_PAGE = `<!DOCTYPE html>
     let tasks = new Map();
     let taskIdCounter = 0;
     let settings = {};
+    let authSource = null;
 
     function showTab(tabId) {
       const btns = document.querySelectorAll('.tabs [role="group"] > button');
@@ -1180,7 +1200,14 @@ const HTML_PAGE = `<!DOCTYPE html>
       console.log('handleMessage:', msg.type);
       if (msg.type === 'settings') {
         settings = msg.settings || {};
+        authSource = msg.authSource || null;
         applySettings();
+        return;
+      }
+
+      if (msg.type === 'authSource') {
+        authSource = msg.authSource || null;
+        updateAuthSourceView(authSource);
         return;
       }
 
@@ -1261,8 +1288,10 @@ const HTML_PAGE = `<!DOCTYPE html>
       document.getElementById('telegramEnabled').checked = tgSettings.enabled || false;
       document.getElementById('telegramToken').value = tgSettings.botToken || '';
       document.getElementById('telegramUsers').value = (tgSettings.allowedUsers || []).join(', ');
-      document.getElementById('telegramDebugLogs').checked = tgSettings.debugLogs || false;
-      updateTelegramDebugBadge();
+      const legacyTelegramDebugEnabled = tgSettings.debugLogs === true;
+      const debugEnabled = settings.debugLogs === true || (settings.debugLogs === undefined && legacyTelegramDebugEnabled);
+      document.getElementById('debugLogs').checked = debugEnabled;
+      updateDebugBadge();
 
       if (tgSettings.profile) {
         setTimeout(() => {
@@ -1272,7 +1301,6 @@ const HTML_PAGE = `<!DOCTYPE html>
 
       if (settings.ai) {
         document.getElementById('aiProvider').value = settings.ai.provider || 'google';
-        document.getElementById('aiAuthMode').value = settings.ai.authMode || 'auto';
         document.getElementById('ollamaUrl').value = settings.ai.ollamaUrl || 'http://localhost:11434';
         // 모델 목록 업데이트 후 값 설정
         toggleOllamaSettings();
@@ -1292,6 +1320,7 @@ const HTML_PAGE = `<!DOCTYPE html>
           }, 50);
         }
       }
+      updateAuthSourceView(authSource);
       if (settings.browser) {
         document.getElementById('browserMode').value = settings.browser.mode || 'cdp';
         document.getElementById('browserReuse').checked = settings.browser.reuseExisting || false;
@@ -1387,9 +1416,9 @@ const HTML_PAGE = `<!DOCTYPE html>
       }
     }
 
-    function updateTelegramDebugBadge() {
-      const enabled = document.getElementById('telegramDebugLogs').checked;
-      const badge = document.getElementById('telegramDebugBadge');
+    function updateDebugBadge() {
+      const enabled = document.getElementById('debugLogs').checked;
+      const badge = document.getElementById('debugBadge');
       badge.textContent = enabled ? 'ON' : 'OFF';
       badge.className = 'status-badge ' + (enabled ? 'running' : 'stopped');
     }
@@ -1416,12 +1445,16 @@ const HTML_PAGE = `<!DOCTYPE html>
       const users = usersStr ? usersStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)) : [];
       const enabled = document.getElementById('telegramEnabled').checked;
       const profile = document.getElementById('telegramProfile').value;
-      const debugLogs = document.getElementById('telegramDebugLogs').checked;
 
       ws.send(JSON.stringify({
         type: 'saveTelegram',
-        settings: { botToken: token, allowedUsers: users, enabled, profile, debugLogs }
+        settings: { botToken: token, allowedUsers: users, enabled, profile }
       }));
+    }
+
+    function saveDebugSettings() {
+      const enabled = document.getElementById('debugLogs').checked;
+      ws.send(JSON.stringify({ type: 'saveDebug', enabled }));
     }
 
     function testTelegram() {
@@ -1432,13 +1465,39 @@ const HTML_PAGE = `<!DOCTYPE html>
     function saveAISettings() {
       const provider = document.getElementById('aiProvider').value;
       const model = document.getElementById('aiModel').value;
-      const authMode = document.getElementById('aiAuthMode').value;
       const ollamaUrl = document.getElementById('ollamaUrl').value.trim() || 'http://localhost:11434';
 
       ws.send(JSON.stringify({
         type: 'saveAI',
-        settings: { provider, model, authMode, ollamaUrl }
+        settings: { provider, model, ollamaUrl }
       }));
+    }
+
+    function requestAuthSourcePreview() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const provider = document.getElementById('aiProvider')?.value || settings.ai?.provider || 'google';
+      ws.send(JSON.stringify({ type: 'getAuthSource', provider }));
+    }
+
+    function updateAuthSourceView(summary) {
+      const badge = document.getElementById('aiAuthSourceBadge');
+      const text = document.getElementById('aiAuthSourceText');
+      const hint = document.getElementById('aiAuthSourceHint');
+      if (!badge || !text || !hint) return;
+
+      if (!summary) {
+        badge.className = 'status-badge stopped';
+        badge.textContent = '확인 필요';
+        text.textContent = '인증 상태를 확인할 수 없습니다.';
+        hint.textContent = 'Provider 기준으로 자동으로 인증 소스를 선택합니다.';
+        return;
+      }
+
+      const statusClass = summary.status === 'ok' ? 'running' : (summary.status === 'warn' ? 'warning' : 'stopped');
+      badge.className = 'status-badge ' + statusClass;
+      badge.textContent = summary.source === 'none' ? '인증 필요' : '사용 중';
+      text.textContent = summary.label || '인증 소스 미확인';
+      hint.textContent = summary.warning || summary.detail || 'Provider 기준 자동 선택';
     }
 
     // 프로바이더별 모델 목록 (pi-ai에서 가져온 최신 목록)
@@ -1704,6 +1763,12 @@ const HTML_PAGE = `<!DOCTYPE html>
       const card = document.getElementById('card-' + taskId);
       if (card && task) {
         card.innerHTML = getTaskCardHTML(task);
+        const logEl = card.querySelector('.task-log');
+        if (logEl && (task.status === 'running' || task.status === 'pending')) {
+          requestAnimationFrame(() => {
+            logEl.scrollTop = logEl.scrollHeight;
+          });
+        }
       }
     }
 
@@ -2336,13 +2401,31 @@ export async function saveResultToNotion(
   }
 }
 
-export function startWebClient(config: WebClientConfig): Promise<{ settings: Settings }> {
-  return new Promise((resolve) => {
+export function startWebClient(config: WebClientConfig): Promise<{ settings: Settings; port: number }> {
+  return new Promise((resolve, reject) => {
     const { port, onTask, onTelegramStart, onTelegramStop, onSettingsChange, getProfiles, isExtensionConnected } = config;
     let settings = loadSettings();
     settings.ai = sanitizeAiSettings(settings.ai);
     saveSettings(settings);
     let telegramRunning = false;
+
+    const getActiveProvider = (overrideProvider?: string): string => {
+      return overrideProvider || settings.ai?.provider || "google";
+    };
+
+    const getActiveAuthSource = (overrideProvider?: string): AuthSourceSummary => {
+      const provider = getActiveProvider(overrideProvider);
+      return getAuthSourceSummary(provider, provider === "ollama");
+    };
+
+    const sendSettingsMessage = (target: WebSocket): void => {
+      if (target.readyState !== WebSocket.OPEN) return;
+      target.send(JSON.stringify({
+        type: "settings",
+        settings,
+        authSource: getActiveAuthSource(),
+      }));
+    };
 
     const server = http.createServer((req, res) => {
       if (req.url === "/" || req.url === "/index.html") {
@@ -2361,7 +2444,7 @@ export function startWebClient(config: WebClientConfig): Promise<{ settings: Set
       connectedClients.add(ws);
 
       // 초기 설정 전송
-      ws.send(JSON.stringify({ type: "settings", settings }));
+      sendSettingsMessage(ws);
       ws.send(JSON.stringify({ type: "telegramStatus", running: telegramRunning }));
       if (isExtensionConnected) {
         ws.send(JSON.stringify({ type: "extensionStatus", connected: isExtensionConnected() }));
@@ -2372,8 +2455,16 @@ export function startWebClient(config: WebClientConfig): Promise<{ settings: Set
           const msg = JSON.parse(data.toString());
 
           if (msg.type === "getSettings") {
-            ws.send(JSON.stringify({ type: "settings", settings }));
+            sendSettingsMessage(ws);
             ws.send(JSON.stringify({ type: "telegramStatus", running: telegramRunning }));
+          }
+
+          else if (msg.type === "getAuthSource") {
+            const provider = typeof msg.provider === "string" ? msg.provider : undefined;
+            ws.send(JSON.stringify({
+              type: "authSource",
+              authSource: getActiveAuthSource(provider),
+            }));
           }
 
           else if (msg.type === "getProfiles") {
@@ -2382,11 +2473,24 @@ export function startWebClient(config: WebClientConfig): Promise<{ settings: Set
           }
 
           else if (msg.type === "saveTelegram") {
-            settings.telegram = msg.settings;
+            const incomingTelegram = msg.settings || {};
+            const { debugLogs: legacyDebugLogs, ...telegramSettings } = incomingTelegram;
+            settings.telegram = telegramSettings;
+            if (settings.debugLogs === undefined && typeof legacyDebugLogs === "boolean") {
+              settings.debugLogs = legacyDebugLogs;
+            }
             saveSettings(settings);
             onSettingsChange?.(settings);
-            ws.send(JSON.stringify({ type: "settings", settings }));
+            sendSettingsMessage(ws);
             ws.send(JSON.stringify({ type: "alert", success: true, message: "텔레그램 설정이 저장되었습니다." }));
+          }
+
+          else if (msg.type === "saveDebug") {
+            settings.debugLogs = msg.enabled === true;
+            saveSettings(settings);
+            onSettingsChange?.(settings);
+            sendSettingsMessage(ws);
+            ws.send(JSON.stringify({ type: "alert", success: true, message: "디버그 설정이 저장되었습니다." }));
           }
 
           else if (msg.type === "toggleTelegram") {
@@ -2474,7 +2578,7 @@ export function startWebClient(config: WebClientConfig): Promise<{ settings: Set
             settings.ai = sanitizeAiSettings(msg.settings);
             saveSettings(settings);
             onSettingsChange?.(settings);
-            ws.send(JSON.stringify({ type: "settings", settings }));
+            sendSettingsMessage(ws);
             ws.send(JSON.stringify({ type: "alert", success: true, message: "AI 설정이 저장되었습니다." }));
           }
 
@@ -2482,7 +2586,7 @@ export function startWebClient(config: WebClientConfig): Promise<{ settings: Set
             settings.browser = msg.settings;
             saveSettings(settings);
             onSettingsChange?.(settings);
-            ws.send(JSON.stringify({ type: "settings", settings }));
+            sendSettingsMessage(ws);
             ws.send(JSON.stringify({ type: "alert", success: true, message: "브라우저 설정이 저장되었습니다." }));
           }
 
@@ -2490,7 +2594,7 @@ export function startWebClient(config: WebClientConfig): Promise<{ settings: Set
             settings.notion = msg.settings;
             saveSettings(settings);
             onSettingsChange?.(settings);
-            ws.send(JSON.stringify({ type: "settings", settings }));
+            sendSettingsMessage(ws);
             ws.send(JSON.stringify({ type: "alert", success: true, message: "Notion 설정이 저장되었습니다." }));
           }
 
@@ -2631,23 +2735,45 @@ export function startWebClient(config: WebClientConfig): Promise<{ settings: Set
       });
     });
 
-    server.listen(port, async () => {
-      console.log(`[WebClient] 웹 UI: http://localhost:${port}`);
+    const startServer = (listenPort: number, allowFallback: boolean): void => {
+      const onListenError = (error: NodeJS.ErrnoException): void => {
+        server.off("error", onListenError);
 
-      // 설정에서 텔레그램이 활성화되어 있으면 자동 시작
-      if (settings.telegram?.enabled && settings.telegram?.botToken && onTelegramStart) {
-        try {
-          console.log("[WebClient] 텔레그램 봇 자동 시작 중...");
-          await onTelegramStart(settings.telegram.botToken, settings.telegram.allowedUsers || []);
-          telegramRunning = true;
-          console.log("[WebClient] 텔레그램 봇 시작됨");
-        } catch (err) {
-          console.error("[WebClient] 텔레그램 봇 시작 실패:", (err as Error).message);
+        if (error.code === "EADDRINUSE" && allowFallback) {
+          console.warn(`[WebClient] 포트 ${listenPort} 사용 중, 다른 포트로 재시도합니다.`);
+          startServer(0, false);
+          return;
         }
-      }
 
-      resolve({ settings });
-    });
+        reject(error);
+      };
+
+      server.once("error", onListenError);
+
+      server.listen(listenPort, async () => {
+        server.off("error", onListenError);
+
+        const address = server.address();
+        const actualPort = typeof address === "object" && address ? address.port : listenPort;
+        console.log(`[WebClient] 웹 UI: http://localhost:${actualPort}`);
+
+        // 설정에서 텔레그램이 활성화되어 있으면 자동 시작
+        if (settings.telegram?.enabled && settings.telegram?.botToken && onTelegramStart) {
+          try {
+            console.log("[WebClient] 텔레그램 봇 자동 시작 중...");
+            await onTelegramStart(settings.telegram.botToken, settings.telegram.allowedUsers || []);
+            telegramRunning = true;
+            console.log("[WebClient] 텔레그램 봇 시작됨");
+          } catch (err) {
+            console.error("[WebClient] 텔레그램 봇 시작 실패:", (err as Error).message);
+          }
+        }
+
+        resolve({ settings, port: actualPort });
+      });
+    };
+
+    startServer(port, true);
   });
 }
 

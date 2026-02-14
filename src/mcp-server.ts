@@ -70,7 +70,7 @@ let lastTitle: string = "";
 // Extension 연결
 // ============================================================
 let extWs: any = null;
-const EXT_PORT = 9877;
+const EXT_PORT = 9876;
 
 async function connectExtension(): Promise<void> {
   const { WebSocketServer } = await import("ws");
@@ -114,7 +114,7 @@ async function sendExtCommand(action: string, params: Record<string, unknown>): 
     };
 
     extWs.on("message", handler);
-    extWs.send(JSON.stringify({ id, action, params }));
+    extWs.send(JSON.stringify({ id, command: action, params }));
   });
 }
 

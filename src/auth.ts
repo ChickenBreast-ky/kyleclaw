@@ -44,7 +44,42 @@ const c = {
 // 자격증명 저장/로드
 // ============================================================
 type AuthStore = Record<string, { type: "oauth" } & OAuthCredentials>;
-export type AuthMode = "auto" | "api" | "oauth";
+
+export type AuthSourceType = "ollama" | "api" | "oauth" | "none";
+
+export interface AuthSourceSummary {
+  provider: string;
+  source: AuthSourceType;
+  status: "ok" | "warn" | "error";
+  label: string;
+  detail: string;
+  warning?: string;
+  hasApiKey: boolean;
+  hasOAuth: boolean;
+  oauthProvider?: OAuthProvider;
+}
+
+const PROVIDER_OAUTH_CANDIDATES: Record<string, OAuthProvider[]> = {
+  "anthropic": ["anthropic"],
+  "openai-codex": ["openai-codex"],
+  "google-gemini-cli": ["google-gemini-cli"],
+  "google-antigravity": ["google-antigravity"],
+  "github-copilot": ["github-copilot"],
+  "antigravity": ["google-antigravity"],
+};
+
+function getOAuthCandidates(provider: string): OAuthProvider[] {
+  return PROVIDER_OAUTH_CANDIDATES[provider] ?? [];
+}
+
+function getStoredOAuthProvider(auth: AuthStore, candidates: OAuthProvider[]): OAuthProvider | undefined {
+  for (const oauthId of candidates) {
+    if (auth[oauthId]) {
+      return oauthId;
+    }
+  }
+  return undefined;
+}
 
 export function loadAuth(): AuthStore {
   try {
@@ -79,44 +114,24 @@ function isUsableApiKey(apiKey: string | undefined): apiKey is string {
 }
 
 // ============================================================
-// API 키 해석 (authMode: auto | api | oauth)
+// API 키 해석 (provider 기반 자동 선택)
 // ============================================================
 
 /**
  * provider에 맞는 API 키를 반환한다.
  * 1. Ollama → "ollama"
- * 2. authMode=api: .env 유효 API 키만 사용
- * 3. authMode=oauth: OAuth 토큰만 사용
- * 4. authMode=auto: API 키 우선, 없으면 OAuth
- * 5. 둘 다 없으면 undefined (pi-ai가 내부적으로 처리)
+ * 2. 유효한 .env API 키가 있으면 우선 사용
+ * 3. API 키가 없으면 provider와 호환되는 OAuth 토큰 사용
+ * 4. 둘 다 없으면 undefined (pi-ai가 내부적으로 처리)
  */
 export async function resolveStreamOptions(
   provider: string,
   isOllama: boolean,
-  authMode: AuthMode = "auto",
 ): Promise<{ apiKey: string } | undefined> {
   if (isOllama) return { apiKey: "ollama" };
 
-  // OAuth 시도
   const auth = loadAuth();
-  // pi-ai provider 이름 → OAuth provider 후보 ID 매핑
-  const providerOAuthCandidates: Record<string, OAuthProvider[]> = {
-    // 표준 provider 이름 (web/cli 모델 선택)
-    "openai": ["openai-codex"],
-    "google": ["google-gemini-cli", "google-antigravity"],
-    "anthropic": ["anthropic"],
-
-    // OAuth provider ID 직접 입력 시
-    "openai-codex": ["openai-codex"],
-    "google-gemini-cli": ["google-gemini-cli"],
-    "google-antigravity": ["google-antigravity"],
-    "github-copilot": ["github-copilot"],
-
-    // 별칭
-    "antigravity": ["google-antigravity"],
-  };
-
-  const oauthCandidates = providerOAuthCandidates[provider] ?? [];
+  const oauthCandidates = getOAuthCandidates(provider);
 
   const tryOAuthCandidates = async (): Promise<{ apiKey: string } | undefined> => {
     for (const oauthId of oauthCandidates) {
@@ -139,23 +154,7 @@ export async function resolveStreamOptions(
     return undefined;
   };
 
-  // API 우선 모드
   const envApiKey = getEnvApiKey(provider);
-  if (authMode === "api") {
-    if (isUsableApiKey(envApiKey)) {
-      return { apiKey: envApiKey };
-    }
-    return undefined;
-  }
-
-  // OAuth 우선 모드
-  if (authMode === "oauth") {
-    const oauthResult = await tryOAuthCandidates();
-    if (oauthResult) return oauthResult;
-    return undefined;
-  }
-
-  // 기본(auto): 유효한 API 키 우선, 없으면 OAuth
   if (isUsableApiKey(envApiKey)) {
     return { apiKey: envApiKey };
   }
@@ -165,6 +164,79 @@ export async function resolveStreamOptions(
 
   // .env 폴백 — pi-ai가 자동으로 읽으므로 undefined 반환
   return undefined;
+}
+
+export function getAuthSourceSummary(provider: string, isOllama: boolean): AuthSourceSummary {
+  if (isOllama) {
+    return {
+      provider,
+      source: "ollama",
+      status: "ok",
+      label: "로컬 (인증 불필요)",
+      detail: "Ollama 로컬 모델을 사용합니다.",
+      hasApiKey: false,
+      hasOAuth: false,
+    };
+  }
+
+  const auth = loadAuth();
+  const oauthCandidates = getOAuthCandidates(provider);
+  const storedOAuthProvider = getStoredOAuthProvider(auth, oauthCandidates);
+  const envApiKey = getEnvApiKey(provider);
+  const hasApiKey = isUsableApiKey(envApiKey);
+  const hasOAuth = Boolean(storedOAuthProvider);
+
+  if (hasApiKey) {
+    const detail = hasOAuth
+      ? "현재는 API 키를 우선 사용하고, OAuth는 예비 인증으로 유지됩니다."
+      : ".env API 키가 감지되었습니다.";
+
+    return {
+      provider,
+      source: "api",
+      status: "ok",
+      label: "API 키 (.env) 사용 중",
+      detail,
+      hasApiKey,
+      hasOAuth,
+      oauthProvider: storedOAuthProvider,
+    };
+  }
+
+  if (storedOAuthProvider) {
+    return {
+      provider,
+      source: "oauth",
+      status: "ok",
+      label: `OAuth 사용 중 (${storedOAuthProvider})`,
+      detail: "저장된 OAuth 자격증명을 사용합니다.",
+      hasApiKey,
+      hasOAuth,
+      oauthProvider: storedOAuthProvider,
+    };
+  }
+
+  let warning: string | undefined;
+  if (provider === "openai" && auth["openai-codex"]) {
+    warning = "openai-codex OAuth는 openai provider와 호환되지 않습니다. provider를 openai-codex로 바꾸거나 OPENAI_API_KEY를 설정하세요.";
+  }
+
+  if (provider === "google" && (auth["google-gemini-cli"] || auth["google-antigravity"])) {
+    warning = "google-gemini-cli/antigravity OAuth는 google provider와 직접 호환되지 않습니다. provider를 oauth 전용 provider로 바꾸거나 GEMINI_API_KEY를 설정하세요.";
+  }
+
+  return {
+    provider,
+    source: "none",
+    status: warning ? "warn" : "error",
+    label: "인증 필요",
+    detail: warning
+      ? "현재 provider와 호환되는 인증이 없습니다."
+      : "API 키(.env) 또는 OAuth 로그인이 필요합니다.",
+    warning,
+    hasApiKey,
+    hasOAuth,
+  };
 }
 
 // ============================================================

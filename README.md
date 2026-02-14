@@ -107,6 +107,9 @@ npm start /profiles
 | `/profiles` | Chrome 프로필 목록 |
 | `/models` | AI 모델 목록 |
 | `/set <provider> <model>` | 모델 변경 |
+| `/login [provider]` | OAuth 로그인 |
+| `/logout [provider]` | OAuth 로그아웃 |
+| `/auth` | 인증 상태 확인 |
 | `/config` | 설정 확인 |
 | `exit` | 종료 |
 
@@ -177,6 +180,47 @@ ollama run llama3.2
 npm start '/set ollama llama3.2'
 npm start '구글 열어줘'
 ```
+
+## 인증 (API 키 + OAuth)
+
+Pi-Browser는 provider 기준으로 인증 소스를 자동 선택합니다.
+
+### 선택 규칙
+
+1. Ollama provider면 인증 없이 로컬 실행
+2. `.env`에 유효한 API 키가 있으면 API 키 우선 사용
+3. API 키가 없으면 provider와 호환되는 OAuth 토큰 사용
+4. 둘 다 없으면 인증 오류 안내
+
+### Provider별 인증 권장
+
+| Provider | 권장 인증 |
+|----------|-----------|
+| `openai` | `OPENAI_API_KEY` (.env) |
+| `openai-codex` | OAuth (`/login openai-codex`) |
+| `anthropic` | API 키 또는 OAuth |
+| `google` | `GOOGLE_API_KEY` (.env) |
+| `google-gemini-cli` | OAuth |
+| `google-antigravity` | OAuth |
+| `github-copilot` | OAuth |
+
+주의: `openai-codex` OAuth 토큰은 `openai` provider와 직접 호환되지 않습니다.
+OpenAI API 키를 쓸 때는 `openai`, ChatGPT OAuth를 쓸 때는 `openai-codex`를 선택하세요.
+
+### CLI 인증 명령
+
+```bash
+npm start /login                   # 대화형 OAuth 로그인
+npm start /login anthropic         # 특정 provider 로그인
+npm start /logout                  # 전체 OAuth 로그아웃
+npm start /logout anthropic        # 특정 provider 로그아웃
+npm start /auth                    # 인증 상태 확인
+```
+
+### Web UI에서 확인
+
+웹 설정 탭의 `AI 모델` 섹션에서 `인증 소스` 배지로 현재 사용 중인 인증 상태를 확인할 수 있습니다.
+예: `API 키 (.env) 사용 중`, `OAuth 사용 중`, `인증 필요`
 
 ## 환경 변수
 

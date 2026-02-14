@@ -55,7 +55,7 @@ Note: scripts already include `NODE_OPTIONS=--no-network-family-autoselection` f
 
 ### 개요
 API 키 인증(.env)과 OAuth CLI 로그인을 모두 지원하는 하이브리드 인증 구조.
-`authMode`로 인증 방식을 선택한다.
+인증 방식은 `provider` 기준으로 자동 선택한다.
 
 ### 관련 파일
 - `src/auth.ts`: OAuth 자격증명 저장/로드/갱신, `resolveStreamOptions()` 헬퍼, 로그인/로그아웃 핸들러.
@@ -65,12 +65,11 @@ API 키 인증(.env)과 OAuth CLI 로그인을 모두 지원하는 하이브리�
 
 ### 인증 흐름
 ```
-streamSimple 호출 시 → resolveStreamOptions(provider, isOllama, authMode)
+streamSimple 호출 시 → resolveStreamOptions(provider, isOllama)
   1. Ollama → { apiKey: "ollama" }
-  2. authMode=api   → .env 유효 API 키만 사용
-  3. authMode=oauth → OAuth 토큰만 사용
-  4. authMode=auto  → API 키 우선, 없으면 OAuth
-  5. 둘 다 없음 → undefined 반환 → pi-ai 라이브러리가 process.env에서 자동 읽음
+  2. .env 유효 API 키가 있으면 API 키 우선 사용
+  3. API 키가 없으면 provider와 호환되는 OAuth 토큰 사용
+  4. 둘 다 없음 → undefined 반환 → pi-ai 라이브러리가 process.env에서 자동 읽음
 ```
 
 주의: `openai-codex` OAuth 토큰은 `openai`(api.openai.com) provider와 직접 호환되지 않는다. OAuth 사용 시 provider/model도 `openai-codex` 계열로 선택해야 한다.
@@ -91,7 +90,6 @@ npm start /login anthropic         # 특정 프로바이더 로그인
 npm start /logout                  # 전체 로그아웃
 npm start /logout anthropic        # 특정 프로바이더 로그아웃
 npm start /auth                    # 인증 상태 확인 (OAuth + .env 모두 표시)
-npm start /auth-mode auto          # 인증 모드: auto|api|oauth
 ```
 인터랙티브 모드에서도 동일 커맨드 사용 가능 (슬래시 없이도 됨).
 

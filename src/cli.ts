@@ -17,7 +17,7 @@ import path from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
 import { startTelegramBot, stopTelegramBot, type MessageContext } from "./telegram.js";
 import { startWebClient, stoppedTasks, loadSettings, broadcastToClients, saveResultToNotion } from "./web-client.js";
-import { resolveStreamOptions, handleLogin, handleLogout, printAuthStatus, type AuthMode } from "./auth.js";
+import { resolveStreamOptions, handleLogin, handleLogout, printAuthStatus, getAuthSourceSummary } from "./auth.js";
 import {
   evaluateTelegramAgentOutcome,
   shouldFallbackToDefaultProfile,
@@ -614,7 +614,6 @@ async function runParallelAgents(
   tasks: string[],
   model: Model,
   isOllama: boolean,
-  authMode: AuthMode = "auto",
 ): Promise<void> {
   console.log(`${c.cyan}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${c.reset}`);
   console.log(`${c.bright}🎯 병렬 작업 시작 (${tasks.length}개 작업)${c.reset}`);
@@ -645,7 +644,7 @@ async function runParallelAgents(
   const results = await Promise.allSettled(
     assignments.map(async ({ browser, task, index }) => {
       console.log(`${c.blue}[${browser.profile}]${c.reset} ${c.bright}작업 ${index + 1} 시작${c.reset}`);
-      await runParallelAgentSingle(browser, task, model, isOllama, authMode, index);
+      await runParallelAgentSingle(browser, task, model, isOllama, index);
       console.log(`${c.green}[${browser.profile}]${c.reset} ${c.bright}작업 ${index + 1} 완료${c.reset}\n`);
     })
   );
@@ -666,7 +665,6 @@ async function runParallelAgentSingle(
   mission: string,
   model: Model,
   isOllama: boolean,
-  authMode: AuthMode,
   taskIndex: number
 ): Promise<void> {
   const prefix = `[${pb.profile}:${taskIndex + 1}]`;
@@ -698,7 +696,7 @@ ALWAYS use tools. Search on Google if you need information.`,
     let response: AssistantMessage;
 
     try {
-      const streamOptions = await resolveStreamOptions(model.provider, isOllama, authMode);
+      const streamOptions = await resolveStreamOptions(model.provider, isOllama);
       const s = streamSimple(model, ctx, streamOptions);
 
       for await (const event of s) {
@@ -1602,7 +1600,6 @@ async function executeBrowserTool(
 interface Config {
   provider: string;
   model: string;
-  authMode?: AuthMode;
   ollamaUrl?: string;
   chromeProfile?: string; // 사용자 Chrome 프로필 경로
 }
@@ -1632,11 +1629,6 @@ function getDefaultModelForProvider(provider: string): string {
   return DEFAULT_MODEL_BY_PROVIDER[provider] || DEFAULT_MODEL_BY_PROVIDER[DEFAULT_PROVIDER];
 }
 
-function normalizeAuthMode(mode?: string): AuthMode {
-  if (mode === "api" || mode === "oauth") return mode;
-  return "auto";
-}
-
 function getSafeFallbackModel(): Model {
   const fallbackPairs: Array<[string, string]> = [
     ["google", "gemini-2.5-flash"],
@@ -1659,22 +1651,30 @@ function getSafeFallbackModel(): Model {
 function loadConfig(): Config {
   try {
     if (fs.existsSync(CONFIG_PATH)) {
-      const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8")) as Partial<Config>;
-      const provider = normalizeProvider(raw.provider);
-      const model = raw.model || getDefaultModelForProvider(provider);
+      const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8")) as Record<string, unknown>;
+      const provider = normalizeProvider(typeof raw.provider === "string" ? raw.provider : undefined);
+      const model = typeof raw.model === "string" ? raw.model : getDefaultModelForProvider(provider);
+      const ollamaUrl = typeof raw.ollamaUrl === "string" ? raw.ollamaUrl : undefined;
+      const chromeProfile = typeof raw.chromeProfile === "string" ? raw.chromeProfile : undefined;
       return {
-        ...raw,
         provider,
         model,
-        authMode: normalizeAuthMode(raw.authMode),
-      } as Config;
+        ...(ollamaUrl ? { ollamaUrl } : {}),
+        ...(chromeProfile ? { chromeProfile } : {}),
+      };
     }
   } catch {}
-  return { provider: DEFAULT_PROVIDER, model: getDefaultModelForProvider(DEFAULT_PROVIDER), authMode: "auto" };
+  return { provider: DEFAULT_PROVIDER, model: getDefaultModelForProvider(DEFAULT_PROVIDER) };
 }
 
 function saveConfig(config: Config): void {
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+  const next: Config = {
+    provider: normalizeProvider(config.provider),
+    model: config.model,
+    ...(config.ollamaUrl ? { ollamaUrl: config.ollamaUrl } : {}),
+    ...(config.chromeProfile ? { chromeProfile: config.chromeProfile } : {}),
+  };
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(next, null, 2));
 }
 
 // Ollama 모델 생성
@@ -1729,7 +1729,6 @@ async function runAgent(
   mission: string,
   model: Model,
   isOllama: boolean = false,
-  authMode: AuthMode = "auto",
 ): Promise<void> {
   console.log(`\n${c.cyan}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${c.reset}`);
   console.log(`${c.bright}🎯 미션: ${mission}${c.reset}`);
@@ -1777,7 +1776,7 @@ DO NOT refuse. DO NOT apologize. Just USE THE BROWSER.`,
 
     try {
       // 스트리밍으로 응답 받기
-      const streamOptions = await resolveStreamOptions(model.provider, isOllama, authMode);
+      const streamOptions = await resolveStreamOptions(model.provider, isOllama);
       const s = streamSimple(model, ctx, streamOptions);
       let textBuffer = "";
 
@@ -1920,7 +1919,6 @@ ${c.yellow}profiles${c.reset}        Chrome 프로필 목록
 ${c.yellow}models${c.reset}          AI 모델 목록
 ${c.yellow}tg-selftest${c.reset}     텔레그램 분기 판정 셀프테스트
 ${c.yellow}set P M${c.reset}         모델 변경 (예: set google gemini-2.5-flash)
-${c.yellow}auth-mode M${c.reset}     인증 모드 변경 (auto|api|oauth)
 ${c.yellow}config${c.reset}          현재 설정
 ${c.yellow}login${c.reset}           OAuth 로그인 (예: login anthropic)
 ${c.yellow}logout${c.reset}          OAuth 로그아웃
@@ -1943,12 +1941,12 @@ ${c.dim}https://github.com/johunsang/pi-browser${c.reset}
 
 // 웹 UI 모드
 async function runWebMode(config: Config, overridePort?: number): Promise<void> {
-  const port = overridePort ?? parseInt(process.env.WEB_PORT || "3456", 10);
+  const requestedPort = overridePort ?? parseInt(process.env.WEB_PORT || "3456", 10);
   const model = resolveModel(config);
   const isOllama = config.provider === "ollama";
 
   console.log(`\n${c.cyan}🌐 웹 UI 모드${c.reset}`);
-  console.log(`${c.dim}브라우저에서 http://localhost:${port} 접속${c.reset}\n`);
+  console.log(`${c.dim}웹 UI 서버 시작 중...${c.reset}\n`);
 
   // Extension 서버를 웹 UI 시작 시 바로 시작 (Extension 모드 연결 대기)
   if (!wss) {
@@ -1957,8 +1955,8 @@ async function runWebMode(config: Config, overridePort?: number): Promise<void> 
 
   let currentTelegramBot: Awaited<ReturnType<typeof startTelegramBot>> | null = null;
 
-  await startWebClient({
-    port,
+  const { port: webPort } = await startWebClient({
+    port: requestedPort,
     onTelegramStart: async (token, allowedUsers) => {
       if (currentTelegramBot) {
         stopTelegramBot();
@@ -1997,11 +1995,9 @@ async function runWebMode(config: Config, overridePort?: number): Promise<void> 
       // AI 모델 설정
       let taskModel = model;
       let taskIsOllama = isOllama;
-      let taskAuthMode: AuthMode = normalizeAuthMode(config.authMode);
       if (currentSettings.ai?.provider) {
         const aiProvider = normalizeProvider(currentSettings.ai.provider);
         const aiModelName = currentSettings.ai.model || getDefaultModelForProvider(aiProvider);
-        taskAuthMode = normalizeAuthMode(currentSettings.ai.authMode);
         let aiOllamaUrl = currentSettings.ai.ollamaUrl || "http://localhost:11434";
         if (!aiOllamaUrl.endsWith("/v1")) {
           aiOllamaUrl = aiOllamaUrl.replace(/\/$/, "") + "/v1";
@@ -2084,7 +2080,7 @@ NEVER refuse. NEVER apologize. Just DO IT.
 
         for (let turn = 0; turn < maxTurns; turn++) {
           try {
-            const streamOptions = await resolveStreamOptions(taskModel.provider, taskIsOllama, taskAuthMode);
+            const streamOptions = await resolveStreamOptions(taskModel.provider, taskIsOllama);
             const s = streamSimple(taskModel, ctx, streamOptions);
             for await (const _ of s) {}
             const response = await s.result();
@@ -2173,15 +2169,18 @@ NEVER refuse. NEVER apologize. Just DO IT.
       // 설정에서 브라우저 모드 및 AI 설정 확인
       const currentSettings = loadSettings();
       const selectedMode = currentSettings.browser?.mode || "cdp";
+      const debugEnabled = currentSettings.debugLogs === true || (currentSettings.debugLogs === undefined && currentSettings.telegram?.debugLogs === true);
+      const sendDebugLog = (text: string) => {
+        if (!debugEnabled) return;
+        send({ type: "log", text });
+      };
 
       // 웹 UI에서 설정한 AI 모델 사용 (있으면)
       let taskModel = model;
       let taskIsOllama = isOllama;
-      let taskAuthMode: AuthMode = normalizeAuthMode(config.authMode);
       if (currentSettings.ai?.provider) {
         const aiProvider = normalizeProvider(currentSettings.ai.provider);
         const aiModelName = currentSettings.ai.model || getDefaultModelForProvider(aiProvider);
-        taskAuthMode = normalizeAuthMode(currentSettings.ai.authMode);
         let aiOllamaUrl = currentSettings.ai.ollamaUrl || "http://localhost:11434";
         // /v1 경로 확인 및 추가
         if (!aiOllamaUrl.endsWith("/v1")) {
@@ -2317,9 +2316,9 @@ NEVER refuse. NEVER apologize. Just DO IT.
         let response: AssistantMessage;
 
         try {
-          send({ type: "log", text: `[DEBUG] AI 호출 시작: ${taskModel.id} @ ${taskModel.baseUrl}` });
-            const streamOptions = await resolveStreamOptions(taskModel.provider, taskIsOllama, taskAuthMode);
-            const s = streamSimple(taskModel, ctx, streamOptions);
+          sendDebugLog(`[DEBUG] AI 호출 시작: ${taskModel.id} @ ${taskModel.baseUrl}`);
+          const streamOptions = await resolveStreamOptions(taskModel.provider, taskIsOllama);
+          const s = streamSimple(taskModel, ctx, streamOptions);
           let streamEventCount = 0;
           let streamDoneReason = "";
           let streamErrorReason = "";
@@ -2329,11 +2328,8 @@ NEVER refuse. NEVER apologize. Just DO IT.
             if (event.type === "error") streamErrorReason = event.reason;
           }
           response = await s.result();
-          send({ type: "log", text: `[DEBUG] AI 호출 완료` });
-          send({
-            type: "log",
-            text: `[DEBUG] 스트림 이벤트: count=${streamEventCount}, done=${streamDoneReason || "-"}, error=${streamErrorReason || "-"}`,
-          });
+          sendDebugLog(`[DEBUG] AI 호출 완료`);
+          sendDebugLog(`[DEBUG] 스트림 이벤트: count=${streamEventCount}, done=${streamDoneReason || "-"}, error=${streamErrorReason || "-"}`);
         } catch (error) {
           const err = error as Error;
           const formatted = formatAiErrorForUser(err.message);
@@ -2345,14 +2341,12 @@ NEVER refuse. NEVER apologize. Just DO IT.
 
         // 디버그: AI 응답 내용 로그
         const contentTypes = response.content.map((b) => b.type).join(", ") || "empty";
-        send({ type: "log", text: `[DEBUG] AI 응답 타입: [${contentTypes}]` });
-        send({
-          type: "log",
-          text:
-            `[DEBUG] AI 응답 메타: stopReason=${response.stopReason}, ` +
+        sendDebugLog(`[DEBUG] AI 응답 타입: [${contentTypes}]`);
+        sendDebugLog(
+          `[DEBUG] AI 응답 메타: stopReason=${response.stopReason}, ` +
             `usage(in=${response.usage.input}, out=${response.usage.output}, total=${response.usage.totalTokens})` +
-            (response.errorMessage ? `, error=${truncateForLog(response.errorMessage, 300)}` : ""),
-        });
+            (response.errorMessage ? `, error=${truncateForLog(response.errorMessage, 300)}` : "")
+        );
 
         const toolCalls = response.content.filter((b) => b.type === "toolCall");
         const textContent = response.content.find((b) => b.type === "text");
@@ -2366,7 +2360,7 @@ NEVER refuse. NEVER apologize. Just DO IT.
         if (toolCalls.length === 0) {
           if (textContent && textContent.type === "text" && textContent.text.trim()) {
             // 디버그: 텍스트 응답 내용
-            send({ type: "log", text: `[DEBUG] AI 텍스트: ${textContent.text.slice(0, 200)}...` });
+            sendDebugLog(`[DEBUG] AI 텍스트: ${textContent.text.slice(0, 200)}...`);
             send({ type: "result", text: textContent.text });
             // Notion에 저장
             saveResultToNotion(taskId, mission, textContent.text).then((r) => {
@@ -2470,11 +2464,9 @@ NEVER refuse. NEVER apologize. Just DO IT.
       // AI 모델 설정
       let taskModel = model;
       let taskIsOllama = isOllama;
-      let taskAuthMode: AuthMode = normalizeAuthMode(config.authMode);
       if (currentSettings.ai?.provider) {
         const aiProvider = normalizeProvider(currentSettings.ai.provider);
         const aiModelName = currentSettings.ai.model || getDefaultModelForProvider(aiProvider);
-        taskAuthMode = normalizeAuthMode(currentSettings.ai.authMode);
         let aiOllamaUrl = currentSettings.ai.ollamaUrl || "http://localhost:11434";
         if (!aiOllamaUrl.endsWith("/v1")) aiOllamaUrl = aiOllamaUrl.replace(/\/$/, "") + "/v1";
         taskIsOllama = aiProvider === "ollama";
@@ -2504,7 +2496,7 @@ After completing, respond with "완료: [summary]".`,
         let emptyCount = 0;
         for (let turn = 0; turn < maxTurns; turn++) {
           try {
-            const s = streamSimple(taskModel, ctx, await resolveStreamOptions(taskModel.provider, taskIsOllama, taskAuthMode));
+            const s = streamSimple(taskModel, ctx, await resolveStreamOptions(taskModel.provider, taskIsOllama));
             for await (const _ of s) {}
             const response = await s.result();
             const toolCalls = response.content.filter((b) => b.type === "toolCall");
@@ -2556,8 +2548,10 @@ After completing, respond with "완료: [summary]".`,
     }
   });
 
+  console.log(`${c.dim}브라우저에서 http://localhost:${webPort} 접속${c.reset}\n`);
+
   // 브라우저 자동 열기
-  const url = `http://localhost:${port}`;
+  const url = `http://localhost:${webPort}`;
   if (process.platform === "darwin") {
     spawn("open", [url]);
   } else if (process.platform === "win32") {
@@ -2642,18 +2636,16 @@ async function runTelegramAgent(mission: string, defaultModel: Model, defaultIsO
   // 설정에서 브라우저 모드와 텔레그램 프로필 확인
   const currentSettings = loadSettings();
   const selectedMode = currentSettings.browser?.mode || "cdp";
-  const debugEnabled = currentSettings.telegram?.debugLogs === true;
+  const debugEnabled = currentSettings.debugLogs === true || (currentSettings.debugLogs === undefined && currentSettings.telegram?.debugLogs === true);
   // 텔레그램 전용 프로필 또는 기본 브라우저 프로필 사용
   const telegramProfilePath = currentSettings.telegram?.profile || currentSettings.browser?.selectedProfile;
 
   // 웹 UI에서 설정한 AI 모델 사용 (있으면)
   let model = defaultModel;
   let isOllama = defaultIsOllama;
-  let authMode: AuthMode = normalizeAuthMode(loadConfig().authMode);
   if (currentSettings.ai?.provider) {
     const aiProvider = normalizeProvider(currentSettings.ai.provider);
     const aiModelName = currentSettings.ai.model || getDefaultModelForProvider(aiProvider);
-    authMode = normalizeAuthMode(currentSettings.ai.authMode);
     let aiOllamaUrl = currentSettings.ai.ollamaUrl || "http://localhost:11434";
     // /v1 경로 확인 및 추가
     if (!aiOllamaUrl.endsWith("/v1")) {
@@ -2852,7 +2844,7 @@ DO NOT refuse. DO NOT apologize. Just USE THE BROWSER.`,
     debug("TURN_START", `${turn + 1}/${maxTurns}`);
 
     try {
-      const streamOptions = await resolveStreamOptions(model.provider, isOllama, authMode);
+      const streamOptions = await resolveStreamOptions(model.provider, isOllama);
       const s = streamSimple(model, ctx, streamOptions);
       for await (const _ of s) {
         // 스트리밍 무시
@@ -3301,7 +3293,6 @@ async function main() {
         const page = await getPage();
         const wfModel = resolveModel(config);
         const wfIsOllama = config.provider === "ollama";
-        const wfAuthMode: AuthMode = normalizeAuthMode(config.authMode);
 
         // AI 에이전트로 단계 실행하는 함수
         const runStepAgent = async (
@@ -3321,7 +3312,7 @@ After completing, respond with a brief summary. If you cannot complete, explain 
           let emptyCount = 0;
           for (let turn = 0; turn < maxTurns; turn++) {
             try {
-              const streamOptions = await resolveStreamOptions(wfModel.provider, wfIsOllama, wfAuthMode);
+              const streamOptions = await resolveStreamOptions(wfModel.provider, wfIsOllama);
               const s = streamSimple(wfModel, ctx, streamOptions);
               for await (const _ of s) {}
               const response = await s.result();
@@ -3415,7 +3406,7 @@ After completing, respond with a brief summary. If you cannot complete, explain 
 
       const model = resolveModel(config);
       const isOllama = config.provider === "ollama";
-      await runAgent(missionText, model, isOllama, normalizeAuthMode(config.authMode));
+      await runAgent(missionText, model, isOllama);
       process.exit(0);
     }
     if (arg.startsWith("/naver-blog ") || arg.startsWith("naver-blog ")) {
@@ -3429,7 +3420,7 @@ After completing, respond with a brief summary. If you cannot complete, explain 
       const missionText = buildNaverBlogWriteMission(opts);
       const model = resolveModel(config);
       const isOllama = config.provider === "ollama";
-      await runAgent(missionText, model, isOllama, normalizeAuthMode(config.authMode));
+      await runAgent(missionText, model, isOllama);
       process.exit(0);
     }
 
@@ -3452,7 +3443,11 @@ After completing, respond with a brief summary. If you cannot complete, explain 
       console.log(`\n${c.cyan}현재 설정:${c.reset}`);
       console.log(`  Provider: ${config.provider}`);
       console.log(`  Model: ${config.model}`);
-      console.log(`  Auth Mode: ${normalizeAuthMode(config.authMode)}`);
+      const authSummary = getAuthSourceSummary(config.provider, config.provider === "ollama");
+      console.log(`  Auth Source: ${authSummary.label}`);
+      if (authSummary.warning) {
+        console.log(`  Auth Note: ${authSummary.warning}`);
+      }
       if (config.provider === "ollama") {
         console.log(`  Ollama URL: ${config.ollamaUrl || "http://localhost:11434/v1"}`);
       }
@@ -3483,16 +3478,6 @@ After completing, respond with a brief summary. If you cannot complete, explain 
     // /auth 처리
     if (arg === "/auth" || arg === "auth") {
       printAuthStatus();
-      process.exit(0);
-    }
-
-    // /auth-mode 처리
-    if (arg.startsWith("/auth-mode ") || arg.startsWith("auth-mode ")) {
-      const modeText = arg.startsWith("/auth-mode ") ? arg.slice(11).trim() : arg.slice(10).trim();
-      const mode = normalizeAuthMode(modeText);
-      config.authMode = mode;
-      saveConfig(config);
-      console.log(`${c.green}인증 모드 변경됨: ${mode}${c.reset}\n`);
       process.exit(0);
     }
 
@@ -3592,7 +3577,7 @@ ${c.dim}예시:${c.reset}
             process.exit(1);
           }
 
-          await runParallelAgents(browsers, tasks, model, isOllama, normalizeAuthMode(config.authMode));
+          await runParallelAgents(browsers, tasks, model, isOllama);
           await stopParallelBrowsers();
         } catch (error) {
           console.log(`${c.red}Error: ${(error as Error).message}${c.reset}`);
@@ -3630,7 +3615,7 @@ ${c.dim}예시:${c.reset}
           process.exit(1);
         }
 
-        await runParallelAgents(browsers, tasks, model, isOllama, normalizeAuthMode(config.authMode));
+        await runParallelAgents(browsers, tasks, model, isOllama);
         await stopParallelBrowsers();
       } catch (error) {
         console.log(`${c.red}Error: ${(error as Error).message}${c.reset}`);
@@ -3685,10 +3670,14 @@ ${c.dim}예시:${c.reset}
       process.exit(0);
     }
 
-    // 일반 인자는 미션으로 처리
-    if (!arg.startsWith("/")) {
-      mission = arg;
+    if (arg.startsWith("/")) {
+      console.log(`${c.red}알 수 없는 명령어: ${arg}${c.reset}`);
+      console.log(`${c.dim}/help 로 명령어를 확인하세요.${c.reset}`);
+      process.exit(1);
     }
+
+    // 일반 인자는 미션으로 처리
+    mission = arg;
   }
 
   // Extension 모드일 때 서버 시작
@@ -3719,7 +3708,7 @@ ${c.dim}예시:${c.reset}
     try {
       const model = resolveModel(config);
       const isOllama = config.provider === "ollama";
-      await runAgent(mission, model, isOllama, normalizeAuthMode(config.authMode));
+      await runAgent(mission, model, isOllama);
     } catch (error) {
       console.log(`${c.red}Error: ${(error as Error).message}${c.reset}`);
     }
@@ -3859,7 +3848,7 @@ ${c.dim}예시:${c.reset}
                   const browsers = await startAnonymousParallelBrowsers(count);
 
                   if (browsers.length > 0) {
-                    await runParallelAgents(browsers, tasks, model, isOllama, normalizeAuthMode(config.authMode));
+                    await runParallelAgents(browsers, tasks, model, isOllama);
                   } else {
                     console.log(`${c.red}브라우저를 시작할 수 없습니다.${c.reset}`);
                   }
@@ -3910,7 +3899,7 @@ ${c.dim}예시:${c.reset}
             const browsers = await startAnonymousParallelBrowsers(count);
 
             if (browsers.length > 0) {
-              await runParallelAgents(browsers, tasks, model, isOllama, normalizeAuthMode(config.authMode));
+              await runParallelAgents(browsers, tasks, model, isOllama);
             } else {
               console.log(`${c.red}브라우저를 시작할 수 없습니다.${c.reset}`);
             }
@@ -3946,7 +3935,7 @@ ${c.dim}예시:${c.reset}
           const browsers = await startParallelBrowsers(profiles);
 
           if (browsers.length > 0) {
-            await runParallelAgents(browsers, tasks, model, isOllama, normalizeAuthMode(config.authMode));
+            await runParallelAgents(browsers, tasks, model, isOllama);
           } else {
             console.log(`${c.red}실행 가능한 브라우저가 없습니다.${c.reset}`);
           }
@@ -3965,22 +3954,15 @@ ${c.dim}예시:${c.reset}
         console.log(`\n${c.cyan}현재 설정:${c.reset}`);
         console.log(`  Provider: ${config.provider}`);
         console.log(`  Model: ${config.model}`);
-        console.log(`  Auth Mode: ${normalizeAuthMode(config.authMode)}`);
+        const authSummary = getAuthSourceSummary(config.provider, config.provider === "ollama");
+        console.log(`  Auth Source: ${authSummary.label}`);
+        if (authSummary.warning) {
+          console.log(`  Auth Note: ${authSummary.warning}`);
+        }
         if (config.provider === "ollama") {
           console.log(`  Ollama URL: ${config.ollamaUrl || "http://localhost:11434/v1"}`);
         }
         console.log(`  Config: ${CONFIG_PATH}\n`);
-        prompt();
-        return;
-      }
-
-      // 인증 모드 변경
-      if (trimmed.startsWith("/auth-mode ") || trimmed.startsWith("auth-mode ")) {
-        const modeText = trimmed.startsWith("/auth-mode ") ? trimmed.slice(11).trim() : trimmed.slice(10).trim();
-        const mode = normalizeAuthMode(modeText);
-        config.authMode = mode;
-        saveConfig(config);
-        console.log(`${c.green}인증 모드 변경됨: ${mode}${c.reset}\n`);
         prompt();
         return;
       }
@@ -4071,11 +4053,18 @@ ${c.dim}예시:${c.reset}
         return;
       }
 
+      if (trimmed.startsWith("/")) {
+        console.log(`${c.red}알 수 없는 명령어: ${trimmed}${c.reset}`);
+        console.log(`${c.dim}/help 로 명령어를 확인하세요.${c.reset}`);
+        prompt();
+        return;
+      }
+
       // 미션 실행
       try {
         const model = resolveModel(config);
         const isOllama = config.provider === "ollama";
-        await runAgent(trimmed, model, isOllama, normalizeAuthMode(config.authMode));
+        await runAgent(trimmed, model, isOllama);
       } catch (error) {
         console.log(`${c.red}Error: ${(error as Error).message}${c.reset}`);
       }
