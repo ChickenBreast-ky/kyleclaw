@@ -8,10 +8,10 @@
     "pi-browser": "./src/cli.ts"
   },
   "scripts": {
-    "start": "NODE_OPTIONS=--no-network-family-autoselection tsx src/cli.ts",
-    "web": "NODE_OPTIONS=--no-network-family-autoselection tsx src/cli.ts /web",
-    "dev": "NODE_OPTIONS=--no-network-family-autoselection tsx src/cli.ts",
-    "mcp": "NODE_OPTIONS=--no-network-family-autoselection tsx src/mcp-server.ts"
+    "start": "tsx src/cli.ts",
+    "web": "tsx src/cli.ts /web",
+    "dev": "tsx src/cli.ts",
+    "mcp": "tsx src/mcp-server.ts"
   },
   "dependencies": {
     "@mariozechner/pi-ai": "0.52.12",
