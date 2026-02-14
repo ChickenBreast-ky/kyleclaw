@@ -14,7 +14,7 @@
     "mcp": "NODE_OPTIONS=--no-network-family-autoselection tsx src/mcp-server.ts"
   },
   "dependencies": {
-    "@mariozechner/pi-ai": "0.49.3",
+    "@mariozechner/pi-ai": "0.52.12",
     "@modelcontextprotocol/sdk": "^1.25.3",
     "@sinclair/typebox": "^0.34.41",
     "better-sqlite3": "^12.6.2",
