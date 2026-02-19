@@ -323,11 +323,15 @@ function sendExtCommand(command: string, params: Record<string, unknown> = {}): 
 
     extClient.send(JSON.stringify({ id, command, params }));
 
-    // 타임아웃
     setTimeout(() => {
       if (pendingRequests.has(id)) {
         pendingRequests.delete(id);
-        reject(new Error(`명령 타임아웃: ${command}`));
+        reject(new Error(
+          `Extension 응답 없음 (60초 타임아웃: ${command})\n` +
+          `→ Chrome에서 chrome://extensions 열기\n` +
+          `→ Pi-Browser 확장 프로그램 "새로고침" 버튼 클릭\n` +
+          `→ 배지가 "ON"으로 바뀌면 다시 시도`
+        ));
       }
     }, 60000);
   });
@@ -353,6 +357,10 @@ function startExtensionServer(): Promise<void> {
       ws.on("message", (data) => {
         try {
           const msg = JSON.parse(data.toString());
+          if (msg.type === "ping") {
+            ws.send(JSON.stringify({ type: "pong", timestamp: Date.now() }));
+            return;
+          }
           const pending = pendingRequests.get(msg.id);
           if (pending) {
             pendingRequests.delete(msg.id);
@@ -1607,14 +1615,39 @@ interface Config {
 const CONFIG_PATH = path.join(os.homedir(), ".pi-browser.json");
 
 const DEFAULT_PROVIDER = "google";
-const DEFAULT_MODEL_BY_PROVIDER: Record<string, string> = {
-  "google": "gemini-2.5-flash",
-  "openai": "gpt-4o",
-  "openai-codex": "gpt-5.1",
-  "anthropic": "claude-sonnet-4-5",
-  "groq": "llama-3.3-70b-versatile",
-  "ollama": "llama3.2",
-};
+
+function buildDefaultModelByProvider(): Record<string, string> {
+  const PREFERRED_MODELS: Record<string, string[]> = {
+    "google": ["gemini-2.5-flash", "gemini-2.0-flash"],
+    "openai": ["gpt-4o", "gpt-4.1"],
+    "openai-codex": ["gpt-5.3-codex", "gpt-5.2", "gpt-5.1"],
+    "anthropic": ["claude-sonnet-4-5", "claude-sonnet-4-0"],
+    "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
+    "ollama": ["llama3.2"],
+  };
+
+  const result: Record<string, string> = {};
+  for (const [provider, preferred] of Object.entries(PREFERRED_MODELS)) {
+    try {
+      const models = getModels(provider as any);
+      for (const preferredId of preferred) {
+        const found = models.find(m => m.id === preferredId);
+        if (found) {
+          result[provider] = found.id;
+          break;
+        }
+      }
+      if (!result[provider] && models.length > 0) {
+        result[provider] = models[0].id;
+      }
+    } catch {
+      result[provider] = preferred[0];
+    }
+  }
+  return result;
+}
+
+const DEFAULT_MODEL_BY_PROVIDER = buildDefaultModelByProvider();
 
 function isProviderAllowed(provider: string): boolean {
   return true;
@@ -1630,19 +1663,14 @@ function getDefaultModelForProvider(provider: string): string {
 }
 
 function getSafeFallbackModel(): Model {
-  const fallbackPairs: Array<[string, string]> = [
-    ["google", "gemini-2.5-flash"],
-    ["google", "gemini-2.0-flash"],
-    ["openai", "gpt-4o"],
-    ["openai", "gpt-4.1"],
-    ["anthropic", "claude-sonnet-4-5"],
-    ["openai-codex", "gpt-5.1"],
-    ["groq", "llama-3.3-70b-versatile"],
-  ];
+  const fallbackOrder = ["google", "openai", "anthropic", "openai-codex", "groq"];
 
-  for (const [provider, modelId] of fallbackPairs) {
-    const model = getModel(provider as any, modelId as any);
-    if (model) return model;
+  for (const provider of fallbackOrder) {
+    const modelId = DEFAULT_MODEL_BY_PROVIDER[provider];
+    if (modelId) {
+      const model = getModel(provider as any, modelId as any);
+      if (model) return model;
+    }
   }
 
   throw new Error("사용 가능한 기본 모델을 찾을 수 없습니다. /set 으로 모델을 설정하세요.");
@@ -2300,8 +2328,10 @@ NEVER refuse. NEVER apologize. Just DO IT.
         tools: browserTools,
       };
 
-      const maxTurns = 20;
+      const maxTurns = 1000;
+      const MAX_CONSECUTIVE_AI_ERRORS = 3;
       let consecutiveEmptyResponses = 0;
+      let consecutiveAiErrors = 0;
 
       for (let turn = 0; turn < maxTurns; turn++) {
         // 중지 체크
@@ -2333,13 +2363,19 @@ NEVER refuse. NEVER apologize. Just DO IT.
         } catch (error) {
           const err = error as Error;
           const formatted = formatAiErrorForUser(err.message);
+          consecutiveAiErrors += 1;
           send({ type: "log", text: `[ERROR] AI 호출 실패: ${formatted.debugMessage}` });
           send({ type: "log", text: `[ERROR] 스택: ${err.stack?.split('\n').slice(0, 3).join(' | ')}` });
-          send({ type: "error", text: formatted.userMessage });
-          return;
+          if (consecutiveAiErrors >= MAX_CONSECUTIVE_AI_ERRORS) {
+            send({ type: "error", text: `AI 호출이 ${consecutiveAiErrors}회 연속 실패했습니다. ${formatted.userMessage}` });
+            return;
+          }
+          send({ type: "log", text: `[WARN] AI 호출 실패, 재시도 중... (${consecutiveAiErrors}/${MAX_CONSECUTIVE_AI_ERRORS})` });
+          continue;
         }
 
         // 디버그: AI 응답 내용 로그
+        consecutiveAiErrors = 0;
         const contentTypes = response.content.map((b) => b.type).join(", ") || "empty";
         sendDebugLog(`[DEBUG] AI 응답 타입: [${contentTypes}]`);
         sendDebugLog(
@@ -2352,17 +2388,14 @@ NEVER refuse. NEVER apologize. Just DO IT.
         const textContent = response.content.find((b) => b.type === "text");
         const hasText = !!(textContent && textContent.type === "text" && textContent.text.trim());
 
-        // 토큰 절약: actionable 응답(toolCall 또는 non-empty text)만 context에 추가
         if (toolCalls.length > 0 || hasText) {
           ctx.messages.push(response);
         }
 
         if (toolCalls.length === 0) {
           if (textContent && textContent.type === "text" && textContent.text.trim()) {
-            // 디버그: 텍스트 응답 내용
             sendDebugLog(`[DEBUG] AI 텍스트: ${textContent.text.slice(0, 200)}...`);
             send({ type: "result", text: textContent.text });
-            // Notion에 저장
             saveResultToNotion(taskId, mission, textContent.text).then((r) => {
               if (r.success) send({ type: "log", text: `[NOTION] ${r.message}` });
             });
@@ -2371,13 +2404,15 @@ NEVER refuse. NEVER apologize. Just DO IT.
 
             if (response.stopReason === "error") {
               const formatted = formatAiErrorForUser(response.errorMessage || "모델이 빈 응답을 반환했습니다.");
+              consecutiveAiErrors += 1;
               send({ type: "log", text: `[ERROR] AI 응답 오류: ${formatted.debugMessage}` });
-              send({ type: "error", text: formatted.userMessage });
-              send({
-                type: "log",
-                text: "[INFO] 모델 변경(/set), API 키, 또는 모델 안전정책(SAFETY 차단)을 확인해보세요.",
-              });
-              return;
+              if (consecutiveAiErrors >= MAX_CONSECUTIVE_AI_ERRORS) {
+                send({ type: "error", text: `AI 응답 오류가 ${consecutiveAiErrors}회 연속 발생했습니다. ${formatted.userMessage}` });
+                send({ type: "log", text: "[INFO] 모델 변경(/set), API 키, 또는 모델 안전정책(SAFETY 차단)을 확인해보세요." });
+                return;
+              }
+              send({ type: "log", text: `[WARN] AI 응답 오류, 재시도 중... (${consecutiveAiErrors}/${MAX_CONSECUTIVE_AI_ERRORS})` });
+              continue;
             }
 
             if (consecutiveEmptyResponses >= 3) {
@@ -2404,6 +2439,7 @@ NEVER refuse. NEVER apologize. Just DO IT.
         consecutiveEmptyResponses = 0;
 
         // 도구 실행
+        consecutiveEmptyResponses = 0;
         for (const call of toolCalls) {
           send({ type: "log", text: `[TOOL] ${call.name}(${JSON.stringify(call.arguments)})` });
 
@@ -2705,7 +2741,9 @@ async function runTelegramAgent(mission: string, defaultModel: Model, defaultIsO
     debug("PROFILE_MISS", `설정된 프로필 경로를 찾지 못함: ${telegramProfilePath}`);
   }
 
-  const maxTurns = 20;
+  const maxTurns = 1000; // 충분히 큰 값 (빈 응답 3회/AI 에러 3회 연속 시 자동 중단)
+  const MAX_CONSECUTIVE_AI_ERRORS = 3;
+  let consecutiveAiErrors = 0;
   let finalResult = "";
   let lastAiError = "";
   const stats = {
@@ -2853,11 +2891,18 @@ DO NOT refuse. DO NOT apologize. Just USE THE BROWSER.`,
     } catch (error) {
       lastAiError = (error as Error).message;
       stats.aiErrorCount += 1;
+      consecutiveAiErrors += 1;
       debug("AI_ERROR", lastAiError);
-      break;
+      if (consecutiveAiErrors >= MAX_CONSECUTIVE_AI_ERRORS) {
+        debug("AI_ERROR_LIMIT", `연속 AI 에러 ${consecutiveAiErrors}회로 중단`);
+        break;
+      }
+      ctx.messages.push(createUserMessage("이전 요청에서 오류가 발생했습니다. 다시 시도해주세요."));
+      continue;
     }
 
     ctx.messages.push(response);
+    consecutiveAiErrors = 0;
     const contentTypes = response.content.map((b) => b.type).join(", ") || "empty";
     debug("AI_RESPONSE", `content=[${contentTypes}]`);
     debug(
@@ -2869,9 +2914,15 @@ DO NOT refuse. DO NOT apologize. Just USE THE BROWSER.`,
     if (response.stopReason === "error") {
       const formatted = formatAiErrorForUser(response.errorMessage || "모델이 빈 응답을 반환했습니다.");
       stats.aiErrorCount += 1;
+      consecutiveAiErrors += 1;
       lastAiError = formatted.userMessage;
       debug("AI_RESPONSE_ERROR", formatted.debugMessage);
-      break;
+      if (consecutiveAiErrors >= MAX_CONSECUTIVE_AI_ERRORS) {
+        debug("AI_ERROR_LIMIT", `연속 AI 에러 ${consecutiveAiErrors}회로 중단`);
+        break;
+      }
+      ctx.messages.push(createUserMessage("이전 요청에서 오류가 발생했습니다. 다시 시도해주세요."));
+      continue;
     }
 
     const toolCalls = response.content.filter((b) => b.type === "toolCall");
@@ -3653,10 +3704,10 @@ ${c.dim}예시:${c.reset}
         }
       } else {
         console.log(`${c.yellow}사용법: /set <provider> <model>${c.reset}`);
-        console.log(`${c.dim}예: /set google gemini-2.5-flash${c.reset}`);
-        console.log(`${c.dim}예: /set anthropic claude-sonnet-4-5${c.reset}`);
-        console.log(`${c.dim}예: /set openai gpt-4o${c.reset}`);
-        console.log(`${c.dim}예: /set openai-codex gpt-5.1${c.reset}`);
+        console.log(`${c.dim}예: /set google ${DEFAULT_MODEL_BY_PROVIDER['google'] || 'gemini-2.5-flash'}${c.reset}`);
+        console.log(`${c.dim}예: /set anthropic ${DEFAULT_MODEL_BY_PROVIDER['anthropic'] || 'claude-sonnet-4-5'}${c.reset}`);
+        console.log(`${c.dim}예: /set openai ${DEFAULT_MODEL_BY_PROVIDER['openai'] || 'gpt-4o'}${c.reset}`);
+        console.log(`${c.dim}예: /set openai-codex ${DEFAULT_MODEL_BY_PROVIDER['openai-codex'] || 'gpt-5.3-codex'}${c.reset}`);
       }
       process.exit(0);
     }
@@ -4026,11 +4077,11 @@ ${c.dim}예시:${c.reset}
           }
         } else {
           console.log(`${c.yellow}사용법: /set <provider> <model>${c.reset}`);
-          console.log(`${c.dim}예: /set ollama llama3.2${c.reset}`);
-          console.log(`${c.dim}예: /set google gemini-2.5-flash${c.reset}`);
-          console.log(`${c.dim}예: /set anthropic claude-sonnet-4-5${c.reset}`);
-          console.log(`${c.dim}예: /set openai gpt-4o${c.reset}`);
-          console.log(`${c.dim}예: /set openai-codex gpt-5.1${c.reset}\n`);
+          console.log(`${c.dim}예: /set ollama ${DEFAULT_MODEL_BY_PROVIDER['ollama'] || 'llama3.2'}${c.reset}`);
+          console.log(`${c.dim}예: /set google ${DEFAULT_MODEL_BY_PROVIDER['google'] || 'gemini-2.5-flash'}${c.reset}`);
+          console.log(`${c.dim}예: /set anthropic ${DEFAULT_MODEL_BY_PROVIDER['anthropic'] || 'claude-sonnet-4-5'}${c.reset}`);
+          console.log(`${c.dim}예: /set openai ${DEFAULT_MODEL_BY_PROVIDER['openai'] || 'gpt-4o'}${c.reset}`);
+          console.log(`${c.dim}예: /set openai-codex ${DEFAULT_MODEL_BY_PROVIDER['openai-codex'] || 'gpt-5.3-codex'}${c.reset}\n`);
         }
         prompt();
         return;
