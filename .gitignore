@@ -34,3 +34,6 @@ npm-debug.log*
 
 # Auth credentials
 auth.json
+
+# Archive
+.archive/

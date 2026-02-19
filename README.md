@@ -1,8 +1,10 @@
-# Pi-Browser
+# KyleClaw
 
-**다중 AI 모델 기반 브라우저 자동화 CLI**
+**경량화된 AI 브라우저 자동화 CLI**
 
 자연어 명령으로 브라우저를 제어합니다. Google Gemini, OpenAI, Anthropic Claude, Ollama 등 다양한 AI 모델을 지원합니다.
+
+> **Note**: This is a lightweight fork of [pi-browser](https://github.com/johunsang/pi-browser) by hunsang jo.
 
 ## 주요 기능
 
@@ -21,8 +23,8 @@
 
 ```bash
 # 설치
-git clone https://github.com/johunsang/pi-browser.git
-cd pi-browser
+git clone https://github.com/fwani/kyleclaw.git
+cd kyleclaw
 npm install
 
 # API 키 설정
@@ -279,7 +281,7 @@ npm start '/parallel 5 "사이트1 크롤링" "사이트2 크롤링" "사이트3
 ## 프로젝트 구조
 
 ```
-pi-browser/
+kyleclaw/
 ├── src/
 │   ├── cli.ts          # 메인 CLI
 │   ├── web-client.ts   # 웹 UI 서버
@@ -328,5 +330,6 @@ MIT License
 
 ## 크레딧
 
+- **Original Project**: [pi-browser](https://github.com/johunsang/pi-browser) by hunsang jo
 - [@mariozechner/pi-ai](https://github.com/nicklockwood/pi-ai) - 다중 AI 통합
 - [Playwright](https://playwright.dev/) - 브라우저 자동화
