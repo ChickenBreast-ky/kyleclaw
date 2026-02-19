@@ -4,12 +4,13 @@ let connectedTabId = null;
 let isDebugging = false;
 
 // 서비스 워커 활성 유지를 위한 알람
-chrome.alarms.create("keepAlive", { periodInMinutes: 0.5 });
+chrome.alarms.create("keepAlive", { periodInMinutes: 0.25 });
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "keepAlive") {
-    console.log("[Pi-Browser] Keep alive ping");
-    // WebSocket 연결 확인
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
+    // WebSocket 연결 확인 및 핑 전송 (서비스 워커 활성 유지)
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "ping", timestamp: Date.now() }));
+    } else {
       connect();
     }
   }
