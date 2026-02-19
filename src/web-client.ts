@@ -18,6 +18,13 @@ import {
   type WorkflowStep,
 } from "./workflow/index.js";
 import { getAuthSourceSummary, type AuthSourceSummary } from "./auth.js";
+import { getModels, getProviders } from "@mariozechner/pi-ai";
+import {
+  loadTasks,
+  saveTask,
+  deleteTask as deleteStoredTask,
+  type StoredTask,
+} from "./task-storage.js";
 
 // 설정 파일 경로
 const CONFIG_DIR = path.join(os.homedir(), ".pi-browser");
@@ -152,6 +159,46 @@ export function scanChromeProfiles(): ChromeProfile[] {
   }
 
   return profiles;
+}
+
+function buildProviderModels(): Record<string, { value: string; label: string }[]> {
+  const DISPLAY_PROVIDERS = ['google', 'openai', 'openai-codex', 'anthropic', 'groq'];
+  const RECOMMENDED_MODELS: Record<string, string> = {
+    'google': 'gemini-2.5-flash',
+    'openai': 'gpt-4o',
+    'openai-codex': 'gpt-5.3-codex',
+    'anthropic': 'claude-sonnet-4-5',
+    'groq': 'llama-3.3-70b-versatile',
+  };
+
+  const result: Record<string, { value: string; label: string }[]> = {};
+
+  for (const provider of DISPLAY_PROVIDERS) {
+    try {
+      const models = getModels(provider as any);
+      const recommended = RECOMMENDED_MODELS[provider] || '';
+      
+      result[provider] = models
+        .filter(m => !m.id.includes('preview') || m.id.includes('flash'))
+        .sort((a, b) => {
+          if (a.id === recommended) return -1;
+          if (b.id === recommended) return 1;
+          if (a.reasoning !== b.reasoning) return a.reasoning ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        })
+        .slice(0, 12)
+        .map(m => ({
+          value: m.id,
+          label: m.name + (m.reasoning ? ' [R]' : '') + (m.id === recommended ? ' (추천)' : ''),
+        }));
+    } catch (e) {
+      console.warn(`[web-client] Failed to get models for ${provider}:`, e);
+      result[provider] = [];
+    }
+  }
+
+  result['ollama'] = [];
+  return result;
 }
 
 const HTML_PAGE = `<!DOCTYPE html>
@@ -1178,6 +1225,7 @@ const HTML_PAGE = `<!DOCTYPE html>
         document.getElementById('connectionStatus').textContent = '● 연결됨';
         ws.send(JSON.stringify({ type: 'getSettings' }));
         ws.send(JSON.stringify({ type: 'getProfiles' }));
+        ws.send(JSON.stringify({ type: 'getTaskHistory', limit: 50 }));
         // 초기 모델 목록 표시
         toggleOllamaSettings();
       };
@@ -1214,6 +1262,24 @@ const HTML_PAGE = `<!DOCTYPE html>
       if (msg.type === 'profiles') {
         profiles = msg.profiles || [];
         updateProfileSelect();
+        return;
+      }
+
+      if (msg.type === 'taskHistory') {
+        const historyTasks = msg.tasks || [];
+        historyTasks.forEach((t) => {
+          tasks.set(t.id, {
+            id: t.id,
+            mission: t.mission,
+            source: 'web',
+            status: t.status === 'completed' ? 'done' : t.status,
+            logs: t.logs || [],
+            result: t.result || null,
+            profile: t.profile
+          });
+        });
+        renderAllTaskCards();
+        updateStats();
         return;
       }
 
@@ -1500,89 +1566,51 @@ const HTML_PAGE = `<!DOCTYPE html>
       hint.textContent = summary.warning || summary.detail || 'Provider 기준 자동 선택';
     }
 
-    // 프로바이더별 모델 목록 (pi-ai에서 가져온 최신 목록)
-    const providerModels = {
-      google: [
-        { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (추천) [R]' },
-        { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro [R]' },
-        { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
-        { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview [R]' },
-        { value: 'gemini-3-pro-preview', label: 'Gemini 3 Pro Preview [R]' },
-        { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' },
-        { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
-      ],
-      openai: [
-        { value: 'gpt-4o', label: 'GPT-4o (추천)' },
-        { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-        { value: 'gpt-4.1', label: 'GPT-4.1' },
-        { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini' },
-        { value: 'gpt-5', label: 'GPT-5 [R]' },
-        { value: 'gpt-5.1', label: 'GPT-5.1 [R]' },
-        { value: 'gpt-5.2', label: 'GPT-5.2 [R]' },
-        { value: 'o3-mini', label: 'o3-mini [R]' },
-        { value: 'o4-mini', label: 'o4-mini [R]' },
-      ],
-      'openai-codex': [
-        { value: 'gpt-5.1', label: 'GPT-5.1 (Codex) [R]' },
-        { value: 'gpt-5.1-codex-max', label: 'GPT-5.1 Codex Max [R]' },
-        { value: 'gpt-5.1-codex-mini', label: 'GPT-5.1 Codex Mini [R]' },
-        { value: 'gpt-5.2', label: 'GPT-5.2 (Codex) [R]' },
-        { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex [R]' },
-      ],
-      anthropic: [
-        { value: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5 (추천) [R]' },
-        { value: 'claude-opus-4-5', label: 'Claude Opus 4.5 [R]' },
-        { value: 'claude-sonnet-4-0', label: 'Claude Sonnet 4 [R]' },
-        { value: 'claude-opus-4-0', label: 'Claude Opus 4 [R]' },
-        { value: 'claude-opus-4-1', label: 'Claude Opus 4.1 [R]' },
-        { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 [R]' },
-        { value: 'claude-3-7-sonnet-latest', label: 'Claude Sonnet 3.7 [R]' },
-        { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet v2' },
-        { value: 'claude-3-5-haiku-latest', label: 'Claude 3.5 Haiku' },
-      ],
-      groq: [
-        { value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (추천)' },
-        { value: 'meta-llama/llama-4-maverick-17b-128e-instruct', label: 'Llama 4 Maverick 17B' },
-        { value: 'meta-llama/llama-4-scout-17b-16e-instruct', label: 'Llama 4 Scout 17B' },
-        { value: 'deepseek-r1-distill-llama-70b', label: 'DeepSeek R1 Distill 70B [R]' },
-        { value: 'qwen-qwq-32b', label: 'Qwen QwQ 32B [R]' },
-        { value: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B' },
-      ],
-      ollama: []  // Ollama는 동적으로 가져옴
-    };
+    let providerModels = {};
+
+    async function loadProviderModels() {
+      try {
+        const res = await fetch('/api/models');
+        providerModels = await res.json();
+        const provider = document.getElementById('aiProvider').value;
+        if (provider && provider !== 'ollama') {
+          updateModelDropdown(provider);
+        }
+      } catch (e) {
+        console.error('모델 목록 로드 실패:', e);
+      }
+    }
+
+    function updateModelDropdown(provider) {
+      const modelSelect = document.getElementById('aiModel');
+      const models = providerModels[provider] || [];
+      const currentValue = modelSelect.value;
+      modelSelect.innerHTML = '';
+      models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.value;
+        opt.textContent = m.label;
+        modelSelect.appendChild(opt);
+      });
+      if (currentValue && Array.from(modelSelect.options).some(o => o.value === currentValue)) {
+        modelSelect.value = currentValue;
+      }
+    }
+
+    loadProviderModels();
 
     function toggleOllamaSettings() {
       const provider = document.getElementById('aiProvider').value;
       const ollamaSettings = document.getElementById('ollamaSettings');
       const modelSelect = document.getElementById('aiModel');
 
-      // Ollama 설정 표시/숨김
       if (provider === 'ollama') {
         ollamaSettings.style.display = 'block';
         testOllama();
-      } else {
-        ollamaSettings.style.display = 'none';
-      }
-
-      // 모델 드롭다운 업데이트
-      const models = providerModels[provider] || [];
-      const currentValue = modelSelect.value;
-
-      if (provider === 'ollama') {
-        // Ollama는 모델 목록이 동적으로 로드됨
         modelSelect.innerHTML = '<option value="">🔌 Ollama 연결 후 선택...</option>';
       } else {
-        modelSelect.innerHTML = '';
-        models.forEach(m => {
-          const opt = document.createElement('option');
-          opt.value = m.value;
-          opt.textContent = m.label;
-          modelSelect.appendChild(opt);
-        });
-        // 이전 값 유지 (있으면)
-        if (currentValue && Array.from(modelSelect.options).some(o => o.value === currentValue)) {
-          modelSelect.value = currentValue;
-        }
+        ollamaSettings.style.display = 'none';
+        updateModelDropdown(provider);
       }
     }
 
@@ -1756,6 +1784,23 @@ const HTML_PAGE = `<!DOCTYPE html>
       card.id = 'card-' + task.id;
       card.innerHTML = getTaskCardHTML(task);
       grid.prepend(card);
+    }
+
+    function renderAllTaskCards() {
+      const grid = document.getElementById('tasksGrid');
+      grid.innerHTML = '';
+      const sortedTasks = Array.from(tasks.values()).sort((a, b) => {
+        const aTime = a.createdAt || 0;
+        const bTime = b.createdAt || 0;
+        return bTime - aTime;
+      });
+      sortedTasks.forEach(task => {
+        const card = document.createElement('div');
+        card.className = 'task-card';
+        card.id = 'card-' + task.id;
+        card.innerHTML = getTaskCardHTML(task);
+        grid.appendChild(card);
+      });
     }
 
     function updateTaskCard(taskId) {
@@ -2431,6 +2476,9 @@ export function startWebClient(config: WebClientConfig): Promise<{ settings: Set
       if (req.url === "/" || req.url === "/index.html") {
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(HTML_PAGE);
+      } else if (req.url === "/api/models") {
+        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify(buildProviderModels()));
       } else {
         res.writeHead(404);
         res.end("Not Found");
@@ -2470,6 +2518,12 @@ export function startWebClient(config: WebClientConfig): Promise<{ settings: Set
           else if (msg.type === "getProfiles") {
             const profiles = getProfiles?.() || [];
             ws.send(JSON.stringify({ type: "profiles", profiles }));
+          }
+
+          else if (msg.type === "getTaskHistory") {
+            const limit = typeof msg.limit === "number" ? msg.limit : 50;
+            const tasks = loadTasks(limit);
+            ws.send(JSON.stringify({ type: "taskHistory", tasks }));
           }
 
           else if (msg.type === "saveTelegram") {
@@ -2638,15 +2692,45 @@ export function startWebClient(config: WebClientConfig): Promise<{ settings: Set
             const { taskId } = msg;
             console.log(`[WebClient] 작업 삭제: ${taskId}`);
             stoppedTasks.delete(taskId);
+            deleteStoredTask(taskId);
           }
 
           else if (msg.type === "run") {
             const { taskId, mission, profile } = msg;
             console.log(`[WebClient] 작업 시작: ${taskId} - ${mission} (프로필: ${profile || '기본'})`);
 
+            saveTask({
+              id: taskId,
+              mission,
+              status: "running",
+              profile,
+              createdAt: Date.now(),
+            });
+
             const send = (m: any) => {
               if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ taskId, ...m }));
+              }
+              if (m.type === "status" && m.status === "completed") {
+                saveTask({
+                  id: taskId,
+                  mission,
+                  status: "completed",
+                  profile,
+                  createdAt: Date.now(),
+                  completedAt: Date.now(),
+                  result: m.result,
+                });
+              } else if (m.type === "error") {
+                saveTask({
+                  id: taskId,
+                  mission,
+                  status: "error",
+                  profile,
+                  createdAt: Date.now(),
+                  completedAt: Date.now(),
+                  result: m.text,
+                });
               }
             };
 
